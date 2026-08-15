@@ -112,6 +112,13 @@ button {
   margin-bottom: 24px;
 }
 
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .topbar h1 {
   margin: 0;
   font-size: 28px;
@@ -138,6 +145,41 @@ button {
   border-radius: 8px;
   background: rgba(18, 25, 22, 0.86);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
+.phase-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  gap: 18px;
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid rgba(125, 211, 166, 0.24);
+  border-radius: 8px;
+  background: rgba(18, 25, 22, 0.86);
+}
+
+.phase-banner h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.phase-banner p,
+.phase-card p,
+.capability-item p {
+  color: #a9bbb0;
+}
+
+.phase-checks {
+  display: grid;
+  gap: 8px;
+}
+
+.phase-checks span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: #d9f7e7;
 }
 
 .command-panel {
@@ -270,6 +312,58 @@ pre {
   margin-top: 18px;
 }
 
+.phase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.phase-card {
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.phase-card.ready {
+  border-color: rgba(125, 211, 166, 0.35);
+}
+
+.phase-card.mocked {
+  border-color: rgba(245, 198, 95, 0.28);
+}
+
+.phase-card.planned {
+  border-color: rgba(147, 197, 253, 0.22);
+}
+
+.phase-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.phase-card-header span {
+  color: #7dd3a6;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.api-list {
+  display: grid;
+  gap: 8px;
+}
+
+.api-list code {
+  display: block;
+  padding: 8px;
+  border-radius: 8px;
+  background: #070a09;
+  font-size: 12px;
+}
+
 .surface {
   padding: 18px;
 }
@@ -321,6 +415,34 @@ pre {
   background: #070a09;
 }
 
+.mocks-surface {
+  margin-top: 18px;
+}
+
+.capability-list {
+  display: grid;
+  gap: 10px;
+}
+
+.capability-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.capability-item p {
+  margin: 6px 0 0;
+}
+
+.capability-item span {
+  color: #7dd3a6;
+  font-weight: 800;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -332,7 +454,9 @@ pre {
   }
 
   .topbar,
+  .phase-banner,
   .plan-grid,
+  .phase-grid,
   .lower-grid {
     grid-template-columns: 1fr;
   }
@@ -356,4 +480,3 @@ pre {
     display: none;
   }
 }
-

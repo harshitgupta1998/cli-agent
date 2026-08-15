@@ -32,6 +32,8 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/memory/search", s.searchMemory)
 	mux.HandleFunc("POST /v1/commands/explain", s.explainCommand)
 	mux.HandleFunc("GET /v1/context/project", s.getProjectContext)
+	mux.HandleFunc("GET /v1/phases", s.getPhases)
+	mux.HandleFunc("GET /v1/mocks/capabilities", s.getMockCapabilities)
 
 	return s.withCORS(mux)
 }
@@ -141,6 +143,14 @@ func (s Server) getProjectContext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, s.agent.ProjectContext(cwd))
+}
+
+func (s Server) getPhases(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.agent.Phases())
+}
+
+func (s Server) getMockCapabilities(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.agent.MockCapabilities())
 }
 
 func (s Server) withCORS(next http.Handler) http.Handler {

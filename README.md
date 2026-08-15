@@ -37,12 +37,57 @@ The Go backend currently exposes:
 ```text
 GET  /health
 GET  /v1/config
+GET  /v1/phases
+GET  /v1/mocks/capabilities
 POST /v1/sessions
 POST /v1/requests
 POST /v1/commands/execute
 POST /v1/memory/search
 POST /v1/commands/explain
 GET  /v1/context/project
+```
+
+## Phase Plan
+
+Phase 1 is now solidified as the Command Workbench:
+
+```text
+typed request -> command plan -> policy review -> approval -> mock execution -> remembered event
+```
+
+Later phases are mocked in the API and visible in the frontend so implementation can replace one mock at a time.
+
+See [docs/phase_plan.md](docs/phase_plan.md).
+
+## Test
+
+Backend unit/compile tests:
+
+```bash
+cd backend
+go test ./...
+```
+
+Frontend type and build checks:
+
+```bash
+cd frontend
+npm install
+npm run typecheck
+npm run build
+```
+
+Integration tests against the running API:
+
+```bash
+docker compose up -d --build
+pytest
+```
+
+To point pytest at a different backend URL:
+
+```bash
+TERMIND_API_BASE_URL=http://localhost:8000 pytest
 ```
 
 ## Current Mock Flow

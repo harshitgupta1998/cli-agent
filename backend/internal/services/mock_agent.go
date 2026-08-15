@@ -15,6 +15,8 @@ type Agent interface {
 	SearchMemory(query string, limit int) models.MemorySearchResponse
 	Explain(command string) models.ExplainCommandResponse
 	ProjectContext(cwd string) models.ProjectContext
+	Phases() models.PhaseResponse
+	MockCapabilities() models.MockCapabilityResponse
 }
 
 type MockAgent struct{}
@@ -173,6 +175,188 @@ func (m MockAgent) ProjectContext(cwd string) models.ProjectContext {
 				Label:        "Inspect port 8000",
 				Command:      "lsof -i :8000",
 				SuccessCount: 4,
+			},
+		},
+	}
+}
+
+func (m MockAgent) Phases() models.PhaseResponse {
+	return models.PhaseResponse{
+		CurrentPhase: "phase_1",
+		Phases: []models.Phase{
+			{
+				ID:          "phase_1",
+				Name:        "Command Workbench",
+				Status:      models.PhaseReady,
+				Summary:     "Typed request to command plan, deterministic policy review, mock execution, and command-memory-shaped results.",
+				Deliverable: "A working product skeleton that proves the review-run-remember loop without real shell execution.",
+				Scope: []string{
+					"React TypeScript command workbench",
+					"Go API with typed request and response contracts",
+					"Mock command planner",
+					"Deterministic policy review scaffold",
+					"Mock execution result capture",
+					"Mock memory search",
+					"Docker Compose for frontend, backend, and Postgres",
+				},
+				MockAPIs: []string{
+					"POST /v1/requests",
+					"POST /v1/commands/execute",
+					"POST /v1/memory/search",
+					"GET /v1/context/project",
+				},
+			},
+			{
+				ID:          "phase_2",
+				Name:        "Local LLM Planning",
+				Status:      models.PhaseMocked,
+				Summary:     "Replace static planner rules with Ollama structured output while keeping policy and execution owned by the app.",
+				Deliverable: "Ollama-backed CommandPlan generation with schema validation and local-only mode.",
+				Scope: []string{
+					"Ollama client",
+					"JSON schema validation",
+					"Prompt templates",
+					"Planner fallback handling",
+					"Model health checks",
+				},
+				MockAPIs: []string{
+					"GET /v1/mocks/capabilities",
+					"POST /v1/requests",
+				},
+			},
+			{
+				ID:          "phase_3",
+				Name:        "Safe Execution",
+				Status:      models.PhaseMocked,
+				Summary:     "Add controlled process execution with streaming, cancellation, timeout, and audit events.",
+				Deliverable: "A real executor that can run approved commands safely from the Go backend.",
+				Scope: []string{
+					"Process runner",
+					"PTY support",
+					"Streaming stdout and stderr",
+					"Cancellation",
+					"Timeout policy",
+					"Environment allowlist",
+				},
+				MockAPIs: []string{
+					"POST /v1/commands/execute",
+				},
+			},
+			{
+				ID:          "phase_4",
+				Name:        "Persistent Memory",
+				Status:      models.PhaseMocked,
+				Summary:     "Persist sessions, messages, command events, and project commands instead of returning static mock data.",
+				Deliverable: "Postgres-backed command event store with searchable command history.",
+				Scope: []string{
+					"Repository layer",
+					"Command event persistence",
+					"Session persistence",
+					"Project command learning",
+					"Keyword search",
+				},
+				MockAPIs: []string{
+					"POST /v1/memory/search",
+				},
+			},
+			{
+				ID:          "phase_5",
+				Name:        "Semantic Recall",
+				Status:      models.PhaseMocked,
+				Summary:     "Add local embeddings and hybrid ranking so users can find commands by intent, not only exact text.",
+				Deliverable: "Hybrid keyword, semantic, recency, project, and success ranking.",
+				Scope: []string{
+					"Ollama embeddings",
+					"Embedding storage",
+					"Hybrid scorer",
+					"Same-project boost",
+					"Successful-command boost",
+				},
+				MockAPIs: []string{
+					"POST /v1/memory/search",
+				},
+			},
+			{
+				ID:          "phase_6",
+				Name:        "Voice Input",
+				Status:      models.PhasePlanned,
+				Summary:     "Add local speech-to-text as an input adapter after the typed command pipeline is stable.",
+				Deliverable: "Microphone input feeding the same request pipeline as typed text.",
+				Scope: []string{
+					"Local speech-to-text adapter",
+					"Transcript confirmation",
+					"Same planning and policy pipeline",
+				},
+				MockAPIs: []string{
+					"GET /v1/mocks/capabilities",
+				},
+			},
+		},
+	}
+}
+
+func (m MockAgent) MockCapabilities() models.MockCapabilityResponse {
+	return models.MockCapabilityResponse{
+		Capabilities: []models.MockCapability{
+			{
+				ID:          "ollama_planner",
+				Phase:       "phase_2",
+				Status:      "mocked",
+				Description: "Static planner rules stand in for Ollama structured CommandPlan output.",
+				Endpoints:   []string{"POST /v1/requests"},
+				NextSteps: []string{
+					"Create an Ollama client",
+					"Add request and response schema validation",
+					"Add model availability checks",
+				},
+			},
+			{
+				ID:          "command_executor",
+				Phase:       "phase_3",
+				Status:      "mocked",
+				Description: "Execution returns canned stdout, stderr, exit code, and duration without running a shell command.",
+				Endpoints:   []string{"POST /v1/commands/execute"},
+				NextSteps: []string{
+					"Implement a controlled process runner",
+					"Add streaming output",
+					"Add cancellation and timeouts",
+				},
+			},
+			{
+				ID:          "memory_store",
+				Phase:       "phase_4",
+				Status:      "mocked",
+				Description: "Memory search returns seeded command events while the database schema is already present.",
+				Endpoints:   []string{"POST /v1/memory/search"},
+				NextSteps: []string{
+					"Add repository interfaces",
+					"Persist command events after execution",
+					"Search command_events with keyword ranking",
+				},
+			},
+			{
+				ID:          "semantic_recall",
+				Phase:       "phase_5",
+				Status:      "mocked",
+				Description: "Search results include mock ranking reasons before local embeddings are implemented.",
+				Endpoints:   []string{"POST /v1/memory/search"},
+				NextSteps: []string{
+					"Generate local embeddings with Ollama",
+					"Store embeddings per command event",
+					"Blend semantic and structured ranking signals",
+				},
+			},
+			{
+				ID:          "voice_input",
+				Phase:       "phase_6",
+				Status:      "planned",
+				Description: "Voice is intentionally deferred until the typed planning and execution loop is stable.",
+				Endpoints:   []string{"GET /v1/mocks/capabilities"},
+				NextSteps: []string{
+					"Choose local STT runtime",
+					"Add transcript confirmation UI",
+					"Send transcript through POST /v1/requests",
+				},
 			},
 		},
 	}

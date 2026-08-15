@@ -1,13 +1,22 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CheckCircle2, Clock3, Database, Play, Search, ShieldCheck, Terminal, Zap } from 'lucide-react';
+import { CheckCircle2, Clock3, Database, Layers3, Play, Search, ShieldCheck, Terminal, Zap } from 'lucide-react';
 import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const defaultCwd = '/Users/example/projects/lifesummary-api';
+const defaultCwd = '/Users/example/projects/termind';
 
 type RiskLevel = 'safe' | 'modifying' | 'destructive' | 'privileged' | 'networked' | 'unknown';
 type RiskTone = 'good' | 'warn' | 'bad';
+
+const riskToneByLevel: Record<RiskLevel, RiskTone> = {
+  safe: 'good',
+  modifying: 'warn',
+  networked: 'warn',
+  destructive: 'bad',
+  privileged: 'bad',
+  unknown: 'warn',
+};
 
 type CommandPlan = {
   command: string;
@@ -72,6 +81,30 @@ type ProjectContext = {
   }>;
 };
 
+type Phase = {
+  id: string;
+  name: string;
+  status: 'ready' | 'mocked' | 'planned' | 'blocked';
+  summary: string;
+  deliverable: string;
+  scope: string[];
+  mock_apis: string[];
+};
+
+type PhaseResponse = {
+  current_phase: string;
+  phases: Phase[];
+};
+
+type MockCapability = {
+  id: string;
+  phase: string;
+  status: string;
+  description: string;
+  endpoints: string[];
+  next_steps: string[];
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -95,18 +128,13 @@ function App() {
   const [execution, setExecution] = useState<CommandExecution | null>(null);
   const [memory, setMemory] = useState<MemorySearchResult[]>([]);
   const [project, setProject] = useState<ProjectContext | null>(null);
+  const [phaseResponse, setPhaseResponse] = useState<PhaseResponse | null>(null);
+  const [capabilities, setCapabilities] = useState<MockCapability[]>([]);
   const [loading, setLoading] = useState(false);
 
   const riskTone = useMemo<RiskTone>(() => {
     const risk = plan?.policy.risk || 'safe';
-    return {
-      safe: 'good',
-      modifying: 'warn',
-      networked: 'warn',
-      destructive: 'bad',
-      privileged: 'bad',
-      unknown: 'warn',
-    }[risk];
+    return riskToneByLevel[risk];
   }, [plan]);
 
   useEffect(() => {
@@ -119,6 +147,12 @@ function App() {
 
       const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(defaultCwd)}`);
       setProject(context);
+
+      const phases = await requestJson<PhaseResponse>('/v1/phases');
+      setPhaseResponse(phases);
+
+      const mockResponse = await requestJson<{ capabilities: MockCapability[] }>('/v1/mocks/capabilities');
+      setCapabilities(mockResponse.capabilities);
 
       await searchMemory('backend port command');
     }
@@ -199,6 +233,7 @@ function App() {
           <button className="nav-item active"><Zap size={18} /> Agent</button>
           <button className="nav-item"><Database size={18} /> Memory</button>
           <button className="nav-item"><ShieldCheck size={18} /> Policy</button>
+          <button className="nav-item"><Layers3 size={18} /> Phases</button>
         </nav>
 
         <section className="status-panel">
@@ -223,8 +258,29 @@ function App() {
             <h1>Command workbench</h1>
             <p>{project?.root_path || defaultCwd}</p>
           </div>
-          <div className="pill"><Clock3 size={16} /> Session {sessionId}</div>
+          <div className="topbar-actions">
+            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_1'}</div>
+            <div className="pill"><Clock3 size={16} /> Session {sessionId}</div>
+          </div>
         </header>
+
+        <section className="phase-banner">
+          <div>
+            <div className="section-label">Current build target</div>
+            <h2>{phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase)?.name || 'Command Workbench'}</h2>
+            <p>{phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase)?.summary || 'Typed request to command plan, policy review, mock execution, and remembered command events.'}</p>
+          </div>
+          <div className="phase-checks">
+            {(phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase)?.scope || [
+              'React TypeScript command workbench',
+              'Go API contracts',
+              'Mock planner',
+              'Mock execution',
+            ]).slice(0, 4).map((item) => (
+              <span key={item}><CheckCircle2 size={15} /> {item}</span>
+            ))}
+          </div>
+        </section>
 
         <section className="command-panel">
           <form onSubmit={submitRequest} className="prompt-row">
@@ -274,6 +330,23 @@ function App() {
           )}
         </section>
 
+        <section className="phase-grid">
+          {(phaseResponse?.phases || []).map((phase) => (
+            <article key={phase.id} className={`phase-card ${phase.status}`}>
+              <div className="phase-card-header">
+                <strong>{phase.name}</strong>
+                <span>{phase.status}</span>
+              </div>
+              <p>{phase.summary}</p>
+              <div className="api-list">
+                {phase.mock_apis.slice(0, 3).map((api) => (
+                  <code key={api}>{api}</code>
+                ))}
+              </div>
+            </article>
+          ))}
+        </section>
+
         <section className="lower-grid">
           <div className="surface">
             <div className="section-title">
@@ -300,9 +373,9 @@ function App() {
             </div>
             <div className="signal-grid">
               <span>Stack</span>
-              <strong>{project?.detected_stack.framework || 'fastapi'}</strong>
+              <strong>{project?.detected_stack.framework || 'net/http'}</strong>
               <span>Package manager</span>
-              <strong>{project?.detected_stack.package_manager || 'uv'}</strong>
+              <strong>{project?.detected_stack.package_manager || 'go modules'}</strong>
               <span>Branch</span>
               <strong>{project?.git.branch || 'main'}</strong>
             </div>
@@ -311,6 +384,24 @@ function App() {
                 <code key={command.command}>{command.command}</code>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="surface mocks-surface">
+          <div className="section-title">
+            <Layers3 size={18} />
+            Later phase mocks
+          </div>
+          <div className="capability-list">
+            {capabilities.map((capability) => (
+              <article key={capability.id} className="capability-item">
+                <div>
+                  <strong>{capability.id.replace(/_/g, ' ')}</strong>
+                  <p>{capability.description}</p>
+                </div>
+                <span>{capability.phase}</span>
+              </article>
+            ))}
           </div>
         </section>
       </section>

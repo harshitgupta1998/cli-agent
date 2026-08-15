@@ -16,6 +16,43 @@ const (
 	CommandStatusRejected  = "rejected"
 )
 
+type PhaseStatus string
+
+const (
+	PhaseReady   PhaseStatus = "ready"
+	PhaseMocked  PhaseStatus = "mocked"
+	PhasePlanned PhaseStatus = "planned"
+	PhaseBlocked PhaseStatus = "blocked"
+)
+
+type Phase struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Status      PhaseStatus `json:"status"`
+	Summary     string      `json:"summary"`
+	Deliverable string      `json:"deliverable"`
+	Scope       []string    `json:"scope"`
+	MockAPIs    []string    `json:"mock_apis"`
+}
+
+type PhaseResponse struct {
+	CurrentPhase string  `json:"current_phase"`
+	Phases       []Phase `json:"phases"`
+}
+
+type MockCapability struct {
+	ID          string   `json:"id"`
+	Phase       string   `json:"phase"`
+	Status      string   `json:"status"`
+	Description string   `json:"description"`
+	Endpoints   []string `json:"endpoints"`
+	NextSteps   []string `json:"next_steps"`
+}
+
+type MockCapabilityResponse struct {
+	Capabilities []MockCapability `json:"capabilities"`
+}
+
 type SessionCreateRequest struct {
 	CWD   string `json:"cwd"`
 	Shell string `json:"shell"`

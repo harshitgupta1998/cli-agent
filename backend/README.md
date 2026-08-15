@@ -14,6 +14,13 @@ go run ./cmd/server
 go test ./...
 ```
 
+The repository also includes Python integration tests for the running HTTP API:
+
+```bash
+cd ..
+pytest
+```
+
 ## Current Packages
 
 ```text
@@ -23,6 +30,15 @@ internal/config     environment configuration
 internal/models     request/response contracts
 internal/services   mock agent implementation
 ```
+
+## Phase Endpoints
+
+```text
+GET /v1/phases
+GET /v1/mocks/capabilities
+```
+
+These endpoints make the roadmap executable in the app. Phase 1 is the current working product surface; later phases are represented as explicit mocked capabilities.
 
 The backend still uses mock responses. The next real implementation layers should be:
 
