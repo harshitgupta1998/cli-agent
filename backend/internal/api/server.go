@@ -29,6 +29,7 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/sessions", s.createSession)
 	mux.HandleFunc("POST /v1/requests", s.submitRequest)
 	mux.HandleFunc("POST /v1/commands/execute", s.executeCommand)
+	mux.HandleFunc("POST /v1/commands/record", s.recordCommand)
 	mux.HandleFunc("POST /v1/memory/search", s.searchMemory)
 	mux.HandleFunc("POST /v1/commands/explain", s.explainCommand)
 	mux.HandleFunc("GET /v1/context/project", s.getProjectContext)
@@ -110,6 +111,23 @@ func (s Server) executeCommand(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.agent.Execute(payload))
 }
 
+func (s Server) recordCommand(w http.ResponseWriter, r *http.Request) {
+	var payload models.CommandRecordRequest
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if strings.TrimSpace(payload.FinalCommand) == "" {
+		writeError(w, http.StatusBadRequest, "final_command_required")
+		return
+	}
+	if strings.TrimSpace(payload.CWD) == "" {
+		writeError(w, http.StatusBadRequest, "cwd_required")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.agent.RecordCommand(payload))
+}
+
 func (s Server) searchMemory(w http.ResponseWriter, r *http.Request) {
 	var payload models.MemorySearchRequest
 	if !decodeJSON(w, r, &payload) {
@@ -120,7 +138,7 @@ func (s Server) searchMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.agent.SearchMemory(payload.Query, payload.Limit))
+	writeJSON(w, http.StatusOK, s.agent.SearchMemory(payload))
 }
 
 func (s Server) explainCommand(w http.ResponseWriter, r *http.Request) {

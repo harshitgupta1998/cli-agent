@@ -15,7 +15,8 @@ typed request -> command plan -> policy review -> user approval -> mock executio
 - Mock planner that returns structured command plans.
 - Deterministic policy scaffold.
 - Mock executor that returns stdout, stderr, exit code, and duration.
-- Mock memory search shaped like future persisted command events.
+- Postgres-backed command event recording.
+- Memory search over persisted command events, with seeded mock examples as fallback.
 - Project context mock.
 - Docker Compose stack for frontend, backend, and Postgres.
 
@@ -28,7 +29,8 @@ typed request -> command plan -> policy review -> user approval -> mock executio
 - Backend returns a policy decision.
 - User can run the approved mock command.
 - Backend returns a command-event-like execution result.
-- Memory panel displays relevant prior commands.
+- CLI records locally executed command events through `POST /v1/commands/record`.
+- Memory search returns persisted command events.
 
 ## Later Phase Mocks
 
@@ -60,12 +62,13 @@ Mocked today by:
 
 ## Phase 4: Persistent Memory
 
-Persist command events, sessions, messages, and project commands.
+Expand persistence beyond Phase 1 command events into full sessions, messages, learned project commands, and richer repository queries.
 
 Mocked today by:
 
-- Postgres schema in `database/init`
-- static memory results from `POST /v1/memory/search`
+- static session creation
+- static project context
+- seeded fallback memory examples
 
 ## Phase 5: Semantic Recall
 
@@ -84,4 +87,3 @@ Mocked today by:
 
 - phase capability metadata only
 - the typed pipeline that voice will feed into later
-

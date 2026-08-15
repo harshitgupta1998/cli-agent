@@ -120,6 +120,28 @@ type CommandExecuteResponse struct {
 	DurationMS     int    `json:"duration_ms"`
 }
 
+type CommandRecordRequest struct {
+	SessionID       string `json:"session_id"`
+	RequestID       string `json:"request_id"`
+	UserRequest     string `json:"user_request"`
+	ProposedCommand string `json:"proposed_command"`
+	FinalCommand    string `json:"final_command"`
+	CWD             string `json:"cwd"`
+	Shell           string `json:"shell"`
+	RiskLevel       string `json:"risk_level"`
+	Confirmation    string `json:"confirmation"`
+	ExitCode        int    `json:"exit_code"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	DurationMS      int    `json:"duration_ms"`
+}
+
+type CommandRecordResponse struct {
+	CommandEventID string `json:"command_event_id"`
+	Status         string `json:"status"`
+	Message        string `json:"message"`
+}
+
 type MemorySearchRequest struct {
 	Query     string `json:"query"`
 	ProjectID string `json:"project_id,omitempty"`

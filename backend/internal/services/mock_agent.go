@@ -1,28 +1,34 @@
 package services
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
 )
 
 type Agent interface {
 	CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
 	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
-	SearchMemory(query string, limit int) models.MemorySearchResponse
+	RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse
+	SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse
 	Explain(command string) models.ExplainCommandResponse
 	ProjectContext(cwd string) models.ProjectContext
 	Phases() models.PhaseResponse
 	MockCapabilities() models.MockCapabilityResponse
 }
 
-type MockAgent struct{}
+type MockAgent struct {
+	memory memory.Store
+}
 
-func NewMockAgent() MockAgent {
-	return MockAgent{}
+func NewMockAgent(memoryStore memory.Store) MockAgent {
+	return MockAgent{memory: memoryStore}
 }
 
 func (m MockAgent) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {
@@ -71,7 +77,37 @@ func (m MockAgent) Execute(payload models.CommandExecuteRequest) models.CommandE
 	}
 }
 
-func (m MockAgent) SearchMemory(query string, limit int) models.MemorySearchResponse {
+func (m MockAgent) RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		response, err := m.memory.RecordCommand(ctx, payload)
+		if err == nil {
+			return response
+		}
+	}
+
+	return models.CommandRecordResponse{
+		CommandEventID: "cmd_" + shortID(),
+		Status:         models.CommandStatusCompleted,
+		Message:        "Command event accepted by mock recorder. Persistence comes in phase_4.",
+	}
+}
+
+func (m MockAgent) SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		response, err := m.memory.SearchCommands(ctx, payload)
+		if err == nil && len(response.Results) > 0 {
+			return response
+		}
+	}
+
+	query := payload.Query
+	limit := payload.Limit
 	if limit <= 0 {
 		limit = 5
 	}

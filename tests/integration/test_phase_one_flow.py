@@ -1,3 +1,6 @@
+from uuid import uuid4
+
+
 DEFAULT_CWD = "/Users/example/projects/termind"
 
 
@@ -81,6 +84,48 @@ def test_rejected_command_returns_rejected_status(api):
     assert result["stderr"] == "Command was rejected by the user."
 
 
+def test_cli_can_record_locally_executed_command_event(api):
+    unique_query = f"pytest persisted command {uuid4().hex}"
+    status, payload = api.post(
+        "/v1/commands/record",
+        {
+            "session_id": "ses_demo",
+            "request_id": "req_demo",
+            "user_request": unique_query,
+            "proposed_command": "pwd",
+            "final_command": "pwd",
+            "cwd": DEFAULT_CWD,
+            "shell": "zsh",
+            "risk_level": "safe",
+            "confirmation": "approved",
+            "exit_code": 0,
+            "stdout": DEFAULT_CWD,
+            "stderr": "",
+            "duration_ms": 12,
+        },
+    )
+
+    assert status == 200
+    assert payload["status"] == "completed"
+    assert payload["command_event_id"].startswith("cmd_")
+    assert payload["message"] == "Command event persisted to Postgres."
+
+    search_status, search = api.post(
+        "/v1/memory/search",
+        {
+            "query": unique_query,
+            "project_id": "prj_demo",
+            "cwd": DEFAULT_CWD,
+            "limit": 5,
+        },
+    )
+
+    assert search_status == 200
+    assert search["results"][0]["command_event_id"] == payload["command_event_id"]
+    assert search["results"][0]["user_request"] == unique_query
+    assert "same directory" in search["results"][0]["matched_reasons"]
+
+
 def test_validation_errors_are_explicit(api):
     status, payload = api.post(
         "/v1/requests",
@@ -93,4 +138,3 @@ def test_validation_errors_are_explicit(api):
 
     assert status == 400
     assert payload == {"error": "input_required"}
-

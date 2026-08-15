@@ -8,6 +8,23 @@ Go API service for the Termind product template.
 go run ./cmd/server
 ```
 
+## CLI
+
+Build:
+
+```bash
+go build -o ../bin/termind ./cmd/termind
+```
+
+Run against the local API:
+
+```bash
+../bin/termind
+../bin/termind -once "what is using port 8000?"
+```
+
+The CLI asks the Go API for planning and policy, then executes approved commands locally from your current working directory.
+
 ## Test
 
 ```bash
@@ -44,5 +61,5 @@ The backend still uses mock responses. The next real implementation layers shoul
 
 - `internal/policy` for deterministic command risk evaluation
 - `internal/executor` for controlled command execution and streaming
-- `internal/memory` for Postgres persistence
+- expanded `internal/memory` support for sessions, messages, and learned project commands
 - `internal/ollama` for local LLM planning

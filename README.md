@@ -42,9 +42,51 @@ GET  /v1/mocks/capabilities
 POST /v1/sessions
 POST /v1/requests
 POST /v1/commands/execute
+POST /v1/commands/record
 POST /v1/memory/search
 POST /v1/commands/explain
 GET  /v1/context/project
+```
+
+## CLI Integration
+
+The Docker backend plans commands and applies policy. The local CLI executes approved commands on your machine.
+
+Build the CLI:
+
+```bash
+cd backend
+go build -o ../bin/termind ./cmd/termind
+```
+
+Run one request:
+
+```bash
+../bin/termind -once "what is using port 8000?"
+```
+
+Start the interactive CLI:
+
+```bash
+../bin/termind
+```
+
+Optional API override:
+
+```bash
+TERMIND_API_BASE_URL=http://localhost:8000 ../bin/termind
+```
+
+For convenience, add it to your shell path:
+
+```bash
+export PATH="/Users/harsgupta/Desktop/Code BKP/cli-agent/bin:$PATH"
+```
+
+Then you can run:
+
+```bash
+termind
 ```
 
 ## Phase Plan
@@ -60,6 +102,12 @@ Later phases are mocked in the API and visible in the frontend so implementation
 See [docs/phase_plan.md](docs/phase_plan.md).
 
 ## Test
+
+All checks:
+
+```bash
+make test
+```
 
 Backend unit/compile tests:
 
