@@ -1,12 +1,21 @@
 package services
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/harsgupta/termind/backend/internal/models"
 )
+
+type Agent interface {
+	CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
+	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
+	SearchMemory(query string, limit int) models.MemorySearchResponse
+	Explain(command string) models.ExplainCommandResponse
+	ProjectContext(cwd string) models.ProjectContext
+}
 
 type MockAgent struct{}
 
@@ -26,10 +35,10 @@ func (m MockAgent) CreateRequest(payload models.UserRequestCreate) models.UserRe
 }
 
 func (m MockAgent) Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse {
-	if payload.Confirmation.Status == "rejected" {
+	if payload.Confirmation.Status == models.ConfirmationRejected {
 		return models.CommandExecuteResponse{
 			CommandEventID: "cmd_" + shortID(),
-			Status:         "rejected",
+			Status:         models.CommandStatusRejected,
 			ExitCode:       nil,
 			Stdout:         "",
 			Stderr:         "Command was rejected by the user.",
@@ -44,15 +53,15 @@ func (m MockAgent) Execute(payload models.CommandExecuteRequest) models.CommandE
 	switch command {
 	case "lsof -i :8000":
 		stdout = "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME\npython3  92841 user   12u  IPv4 0x1234      0t0  TCP *:8000 (LISTEN)"
-	case "uvicorn app.main:app --reload":
-		stdout = "INFO: Uvicorn running on http://127.0.0.1:8000\nINFO: Application startup complete."
+	case "go run ./cmd/server":
+		stdout = "Termind API listening on :8000"
 	case "pwd":
 		stdout = payload.CWD
 	}
 
 	return models.CommandExecuteResponse{
 		CommandEventID: "cmd_" + shortID(),
-		Status:         "completed",
+		Status:         models.CommandStatusCompleted,
 		ExitCode:       &exitCode,
 		Stdout:         stdout,
 		Stderr:         "",
@@ -70,7 +79,7 @@ func (m MockAgent) SearchMemory(query string, limit int) models.MemorySearchResp
 			CommandEventID: "cmd_demo_port",
 			Command:        "lsof -i :8000",
 			UserRequest:    "what is using port 8000?",
-			CWD:            "/Users/example/projects/lifesummary-api",
+			CWD:            "/Users/example/projects/termind",
 			ExitCode:       0,
 			Score:          0.94,
 			MatchedReasons: []string{"keyword match", "same project", "successful command"},
@@ -79,8 +88,8 @@ func (m MockAgent) SearchMemory(query string, limit int) models.MemorySearchResp
 		{
 			CommandEventID: "cmd_demo_kill",
 			Command:        "lsof -ti :8000 | xargs kill",
-			UserRequest:    "kill the FastAPI process",
-			CWD:            "/Users/example/projects/lifesummary-api",
+			UserRequest:    "kill the backend process",
+			CWD:            "/Users/example/projects/termind",
 			ExitCode:       0,
 			Score:          0.88,
 			MatchedReasons: []string{"semantic match", "same project", "successful command"},
@@ -88,9 +97,9 @@ func (m MockAgent) SearchMemory(query string, limit int) models.MemorySearchResp
 		},
 		{
 			CommandEventID: "cmd_demo_dev",
-			Command:        "uvicorn app.main:app --reload",
+			Command:        "go run ./cmd/server",
 			UserRequest:    "start the backend server",
-			CWD:            "/Users/example/projects/lifesummary-api",
+			CWD:            "/Users/example/projects/termind",
 			ExitCode:       0,
 			Score:          0.81,
 			MatchedReasons: []string{"project command", "recency", "successful command"},
@@ -121,7 +130,7 @@ func (m MockAgent) Explain(command string) models.ExplainCommandResponse {
 	if strings.Contains(normalized, "kill") {
 		return models.ExplainCommandResponse{
 			Summary:  "Finds matching process IDs and terminates them.",
-			Risk:     "modifying",
+			Risk:     models.RiskModifying,
 			Warnings: []string{"This can stop running processes.", "Confirm the port or process before running."},
 		}
 	}
@@ -129,14 +138,14 @@ func (m MockAgent) Explain(command string) models.ExplainCommandResponse {
 	if strings.Contains(normalized, "rm") {
 		return models.ExplainCommandResponse{
 			Summary:  "Removes files or directories.",
-			Risk:     "destructive",
+			Risk:     models.RiskDestructive,
 			Warnings: []string{"This may permanently delete data."},
 		}
 	}
 
 	return models.ExplainCommandResponse{
 		Summary:  "This command is treated as a read-only or low-risk operation in the mock API.",
-		Risk:     "safe",
+		Risk:     models.RiskSafe,
 		Warnings: []string{},
 	}
 }
@@ -173,10 +182,10 @@ func (m MockAgent) inferPlan(userInput string, cwd string) (string, models.Comma
 	normalized := strings.ToLower(userInput)
 
 	if strings.Contains(normalized, "port") && strings.Contains(normalized, "8000") {
-		return "execute_command", models.CommandPlan{
+		return models.IntentExecuteCommand, models.CommandPlan{
 			Command:              "lsof -i :8000",
 			CWD:                  cwd,
-			Risk:                 "safe",
+			Risk:                 models.RiskSafe,
 			RequiresConfirmation: true,
 			Reason:               "Lists processes listening on port 8000.",
 			Provenance: []string{
@@ -194,10 +203,10 @@ func (m MockAgent) inferPlan(userInput string, cwd string) (string, models.Comma
 	}
 
 	if strings.Contains(normalized, "start") || strings.Contains(normalized, "run") || strings.Contains(normalized, "dev") {
-		return "execute_command", models.CommandPlan{
+		return models.IntentExecuteCommand, models.CommandPlan{
 			Command:              "go run ./cmd/server",
 			CWD:                  cwd,
-			Risk:                 "modifying",
+			Risk:                 models.RiskModifying,
 			RequiresConfirmation: true,
 			Reason:               "Starts the remembered Go backend API for this project.",
 			Provenance: []string{
@@ -210,10 +219,10 @@ func (m MockAgent) inferPlan(userInput string, cwd string) (string, models.Comma
 	}
 
 	if strings.Contains(normalized, "search") || strings.Contains(normalized, "find") || strings.Contains(normalized, "used") {
-		return "search_history", models.CommandPlan{
+		return models.IntentSearchHistory, models.CommandPlan{
 			Command:              "",
 			CWD:                  cwd,
-			Risk:                 "safe",
+			Risk:                 models.RiskSafe,
 			RequiresConfirmation: false,
 			Reason:               "This request is best handled by command memory search.",
 			Provenance:           []string{"The user asked to find a remembered command."},
@@ -221,10 +230,10 @@ func (m MockAgent) inferPlan(userInput string, cwd string) (string, models.Comma
 		}
 	}
 
-	return "execute_command", models.CommandPlan{
+	return models.IntentExecuteCommand, models.CommandPlan{
 		Command:              "pwd",
 		CWD:                  cwd,
-		Risk:                 "safe",
+		Risk:                 models.RiskSafe,
 		RequiresConfirmation: true,
 		Reason:               "Fallback mock command that shows the current working directory.",
 		Provenance: []string{
@@ -242,7 +251,7 @@ func evaluatePolicy(plan models.CommandPlan) models.PolicyDecision {
 
 	for _, marker := range []string{"rm -rf", "git reset --hard", "git clean", "docker system prune"} {
 		if strings.Contains(command, marker) {
-			risk = "destructive"
+			risk = models.RiskDestructive
 			warnings = append(warnings, "This command can permanently remove or reset data.")
 			break
 		}
@@ -250,7 +259,7 @@ func evaluatePolicy(plan models.CommandPlan) models.PolicyDecision {
 
 	for _, marker := range []string{"sudo", "chown -r", "chmod -r"} {
 		if strings.Contains(command, marker) {
-			risk = "privileged"
+			risk = models.RiskPrivileged
 			warnings = append(warnings, "This command requests elevated or broad system permissions.")
 			break
 		}
@@ -264,5 +273,9 @@ func evaluatePolicy(plan models.CommandPlan) models.PolicyDecision {
 }
 
 func shortID() string {
-	return fmt.Sprintf("%x", time.Now().UnixNano())[:12]
+	bytes := make([]byte, 6)
+	if _, err := rand.Read(bytes); err != nil {
+		return "fallback"
+	}
+	return hex.EncodeToString(bytes)
 }

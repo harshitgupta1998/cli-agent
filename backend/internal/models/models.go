@@ -1,5 +1,21 @@
 package models
 
+const (
+	IntentExecuteCommand = "execute_command"
+	IntentSearchHistory  = "search_history"
+
+	RiskSafe        = "safe"
+	RiskModifying   = "modifying"
+	RiskDestructive = "destructive"
+	RiskPrivileged  = "privileged"
+
+	ConfirmationApproved = "approved"
+	ConfirmationRejected = "rejected"
+
+	CommandStatusCompleted = "completed"
+	CommandStatusRejected  = "rejected"
+)
+
 type SessionCreateRequest struct {
 	CWD   string `json:"cwd"`
 	Shell string `json:"shell"`

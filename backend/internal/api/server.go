@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/harsgupta/termind/backend/internal/config"
@@ -12,10 +14,10 @@ import (
 
 type Server struct {
 	cfg   config.Config
-	agent services.MockAgent
+	agent services.Agent
 }
 
-func NewServer(cfg config.Config, agent services.MockAgent) Server {
+func NewServer(cfg config.Config, agent services.Agent) Server {
 	return Server{cfg: cfg, agent: agent}
 }
 
@@ -35,7 +37,10 @@ func (s Server) Routes() http.Handler {
 }
 
 func (s Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"runtime": "go",
+	})
 }
 
 func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +59,13 @@ func (s Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
+	if strings.TrimSpace(payload.CWD) == "" {
+		writeError(w, http.StatusBadRequest, "cwd_required")
+		return
+	}
+	if strings.TrimSpace(payload.Shell) == "" {
+		payload.Shell = "zsh"
+	}
 
 	writeJSON(w, http.StatusOK, models.SessionCreateResponse{
 		SessionID: "ses_demo",
@@ -67,6 +79,14 @@ func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
+	if strings.TrimSpace(payload.Input) == "" {
+		writeError(w, http.StatusBadRequest, "input_required")
+		return
+	}
+	if strings.TrimSpace(payload.CWD) == "" {
+		writeError(w, http.StatusBadRequest, "cwd_required")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, s.agent.CreateRequest(payload))
 }
@@ -74,6 +94,14 @@ func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {
 func (s Server) executeCommand(w http.ResponseWriter, r *http.Request) {
 	var payload models.CommandExecuteRequest
 	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if strings.TrimSpace(payload.Command) == "" {
+		writeError(w, http.StatusBadRequest, "command_required")
+		return
+	}
+	if payload.Confirmation.Status != models.ConfirmationApproved && payload.Confirmation.Status != models.ConfirmationRejected {
+		writeError(w, http.StatusBadRequest, "valid_confirmation_required")
 		return
 	}
 
@@ -85,6 +113,10 @@ func (s Server) searchMemory(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
+	if strings.TrimSpace(payload.Query) == "" {
+		writeError(w, http.StatusBadRequest, "query_required")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, s.agent.SearchMemory(payload.Query, payload.Limit))
 }
@@ -94,6 +126,10 @@ func (s Server) explainCommand(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
+	if strings.TrimSpace(payload.Command) == "" {
+		writeError(w, http.StatusBadRequest, "command_required")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, s.agent.Explain(payload.Command))
 }
@@ -101,7 +137,7 @@ func (s Server) explainCommand(w http.ResponseWriter, r *http.Request) {
 func (s Server) getProjectContext(w http.ResponseWriter, r *http.Request) {
 	cwd := r.URL.Query().Get("cwd")
 	if cwd == "" {
-		cwd = "/Users/example/projects/lifesummary-api"
+		cwd = "/Users/example/projects/termind"
 	}
 
 	writeJSON(w, http.StatusOK, s.agent.ProjectContext(cwd))
@@ -125,18 +161,30 @@ func (s Server) withCORS(next http.Handler) http.Handler {
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	defer r.Body.Close()
 
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return false
+	}
+	if decoder.Decode(&struct{}{}) == nil {
+		writeError(w, http.StatusBadRequest, "invalid_json_multiple_objects")
 		return false
 	}
 
 	return true
 }
 
+func writeError(w http.ResponseWriter, status int, code string) {
+	writeJSON(w, status, map[string]string{"error": code})
+}
+
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if !errors.Is(err, http.ErrHandlerTimeout) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
