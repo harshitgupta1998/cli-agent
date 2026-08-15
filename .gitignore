@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+build/
+*.log
+postgres-data/
+
