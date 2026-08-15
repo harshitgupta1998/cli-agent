@@ -6,7 +6,7 @@ Build a local-first terminal assistant that converts natural-language requests i
 
 The product should not be framed as only "talk to your terminal." The stronger product is:
 
-> A terminal assistant that privately remembers how you work.
+A terminal assistant that privately remembers how you work.
 
 ## 2. Goals
 
