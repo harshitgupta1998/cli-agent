@@ -34,7 +34,9 @@ A terminal assistant that privately remembers how you work.
 ```mermaid
 flowchart TD
     User["User"]
-    CLI["CLI / TUI"]
+    Web["React Frontend"]
+    CLI["Host CLI"]
+    API["Go Backend API"]
     Voice["Voice Input - Future"]
     STT["Local Speech-to-Text - Future"]
     Router["Intent Router"]
@@ -43,26 +45,33 @@ flowchart TD
     Planner["LLM Planner - Ollama"]
     Policy["Policy and Risk Engine"]
     Confirm["User Confirmation"]
-    Executor["Command Executor"]
+    BackendExecutor["Backend Container Executor"]
+    HostExecutor["Host CLI Executor"]
     Summarizer["Result Summarizer"]
     Redactor["Privacy / Redaction Layer"]
-    DB[("SQLite + FTS5")]
+    DB[("Postgres")]
     Embeddings["Local Embeddings - Ollama"]
 
+    User --> Web
     User --> CLI
     User --> Voice
     Voice --> STT
     STT --> CLI
 
-    CLI --> Router
+    Web --> API
+    CLI --> API
+    API --> Router
     Router --> Context
     Router --> Retrieval
     Context --> Planner
     Retrieval --> Planner
     Planner --> Policy
     Policy --> Confirm
-    Confirm --> Executor
-    Executor --> Summarizer
+    Confirm --> BackendExecutor
+    CLI --> HostExecutor
+    BackendExecutor --> Summarizer
+    HostExecutor --> API
+    HostExecutor --> Summarizer
     Summarizer --> Redactor
     Redactor --> DB
     DB --> Retrieval
@@ -99,14 +108,14 @@ The application owns:
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant UI as CLI/TUI
+    participant UI as Frontend or CLI
     participant R as Intent Router
     participant C as Context Collector
     participant M as Memory Retrieval
     participant L as Ollama Planner
     participant P as Policy Engine
     participant X as Executor
-    participant DB as SQLite Memory
+    participant DB as Postgres Memory
 
     U->>UI: "What is using port 8000?"
     UI->>R: Create user request
@@ -119,7 +128,7 @@ sequenceDiagram
     UI->>U: Show command and ask confirmation
     U->>UI: Confirm
     UI->>X: Execute approved command
-    X-->>UI: Stream stdout/stderr
+    X-->>UI: Return stdout/stderr, exit code, duration
     X-->>DB: Store command event
     DB-->>M: Command becomes searchable
 ```
@@ -286,12 +295,14 @@ summary
 retrieval metadata
 ```
 
-SQLite is enough for V1:
+The current implementation uses Postgres in Docker:
 
 - structured relational tables
-- FTS5 for full-text search
-- local file-based persistence
-- simple backups
+- command-event persistence
+- keyword search over command, request, stdout summary, and stderr summary
+- a path to embeddings and richer retrieval later
+
+SQLite remains a possible future packaging option for a single-binary desktop/CLI distribution.
 
 ### 7.8 Retrieval Layer
 
@@ -341,7 +352,7 @@ Privacy modes:
 local_only:
   LLM: local Ollama
   embeddings: local Ollama
-  database: local SQLite
+  database: local Postgres in Docker today
   telemetry: disabled
   cloud APIs: disabled
 
@@ -367,9 +378,9 @@ erDiagram
         string root_path
         string repo_url_redacted
         string default_branch
-        string detected_stack_json
-        datetime created_at
-        datetime updated_at
+        jsonb detected_stack_json
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     SESSIONS {
@@ -377,8 +388,8 @@ erDiagram
         string project_id FK
         string cwd
         string shell
-        datetime started_at
-        datetime ended_at
+        timestamptz started_at
+        timestamptz ended_at
         string summary
     }
 
@@ -387,7 +398,7 @@ erDiagram
         string session_id FK
         string role
         text content
-        datetime created_at
+        timestamptz created_at
     }
 
     COMMAND_EVENTS {
@@ -406,9 +417,9 @@ erDiagram
         text stdout_summary
         text stderr_summary
         integer duration_ms
-        datetime started_at
-        datetime ended_at
-        string tags_json
+        timestamptz started_at
+        timestamptz ended_at
+        jsonb tags_json
     }
 
     COMMAND_ARTIFACTS {
@@ -423,8 +434,8 @@ erDiagram
     COMMAND_EMBEDDINGS {
         string command_event_id PK
         string embedding_model
-        blob embedding
-        datetime created_at
+        bytea embedding
+        timestamptz created_at
     }
 
     PROJECT_COMMANDS {
@@ -434,14 +445,14 @@ erDiagram
         string label
         integer success_count
         integer failure_count
-        datetime last_success_at
+        timestamptz last_success_at
     }
 
     USER_PREFERENCES {
         string id PK
         string key
-        string value_json
-        datetime updated_at
+        jsonb value_json
+        timestamptz updated_at
     }
 ```
 
@@ -458,9 +469,9 @@ CREATE TABLE projects (
   root_path TEXT NOT NULL UNIQUE,
   repo_url_redacted TEXT,
   default_branch TEXT,
-  detected_stack_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  detected_stack_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
@@ -474,8 +485,8 @@ CREATE TABLE sessions (
   project_id TEXT REFERENCES projects(id),
   cwd TEXT NOT NULL,
   shell TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  ended_at TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ,
   summary TEXT
 );
 ```
@@ -490,7 +501,7 @@ CREATE TABLE messages (
   session_id TEXT NOT NULL REFERENCES sessions(id),
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
   content TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
@@ -509,7 +520,7 @@ CREATE TABLE command_events (
   cwd TEXT NOT NULL,
   shell TEXT NOT NULL,
   risk_level TEXT NOT NULL,
-  required_confirmation INTEGER NOT NULL DEFAULT 1,
+  required_confirmation BOOLEAN NOT NULL DEFAULT true,
   confirmation_status TEXT NOT NULL CHECK (
     confirmation_status IN ('not_required', 'approved', 'rejected', 'edited')
   ),
@@ -517,25 +528,9 @@ CREATE TABLE command_events (
   stdout_summary TEXT,
   stderr_summary TEXT,
   duration_ms INTEGER,
-  started_at TEXT NOT NULL,
-  ended_at TEXT,
-  tags_json TEXT NOT NULL DEFAULT '[]'
-);
-```
-
-#### `command_events_fts`
-
-Full-text index for command lookup.
-
-```sql
-CREATE VIRTUAL TABLE command_events_fts USING fts5(
-  user_request,
-  final_command,
-  stdout_summary,
-  stderr_summary,
-  tags,
-  content='command_events',
-  content_rowid='rowid'
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ,
+  tags_json JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 ```
 
@@ -547,8 +542,8 @@ Optional V2 semantic retrieval.
 CREATE TABLE command_embeddings (
   command_event_id TEXT PRIMARY KEY REFERENCES command_events(id),
   embedding_model TEXT NOT NULL,
-  embedding BLOB NOT NULL,
-  created_at TEXT NOT NULL
+  embedding BYTEA NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
@@ -564,7 +559,7 @@ CREATE TABLE project_commands (
   label TEXT NOT NULL,
   success_count INTEGER NOT NULL DEFAULT 0,
   failure_count INTEGER NOT NULL DEFAULT 0,
-  last_success_at TEXT,
+  last_success_at TIMESTAMPTZ,
   UNIQUE(project_id, command)
 );
 ```
@@ -577,19 +572,19 @@ Stores user-level behavior preferences.
 CREATE TABLE user_preferences (
   id TEXT PRIMARY KEY,
   key TEXT NOT NULL UNIQUE,
-  value_json TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  value_json JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
 ## 9. API Design
 
-The CLI can call Python services directly in-process for V1. These API contracts still define clear module boundaries and allow a future local HTTP daemon.
+The current implementation runs a local Go HTTP API. The React frontend and CLI both use these contracts.
 
-Base URL for future local daemon:
+Default local base URL:
 
 ```text
-http://127.0.0.1:48231
+http://localhost:8000
 ```
 
 ### 9.1 Create Session
@@ -670,14 +665,19 @@ Request:
 {
   "session_id": "ses_01JABC",
   "request_id": "req_01J123",
+  "user_request": "what is using port 8000?",
   "command": "lsof -i :8000",
-  "cwd": "/Users/example/projects/api",
+  "cwd": "/app",
+  "shell": "sh",
+  "risk_level": "safe",
   "confirmation": {
     "status": "approved",
     "approved_at": "2026-08-15T15:01:00Z"
   }
 }
 ```
+
+When called from the frontend, execution runs inside the Docker backend container. When using the CLI, the CLI executes approved commands on the host and records them through `POST /v1/commands/record`.
 
 Response:
 
@@ -692,7 +692,7 @@ Response:
 }
 ```
 
-For streaming output, use server-sent events or newline-delimited JSON:
+Future streaming output can use server-sent events or newline-delimited JSON:
 
 ```http
 GET /v1/commands/{command_event_id}/stream
@@ -836,143 +836,131 @@ Response:
 
 ## 10. Internal Service Interfaces
 
-### 10.1 `Planner`
+### 10.1 Planner
 
-```python
-class Planner:
-    def create_plan(
-        self,
-        user_input: str,
-        context: ProjectContext,
-        memories: list[CommandMemory],
-    ) -> CommandPlan:
-        ...
+```go
+type Planner interface {
+    Plan(payload models.UserRequestCreate) (string, models.CommandPlan, error)
+}
 ```
 
-### 10.2 `PolicyEngine`
+Current implementations:
 
-```python
-class PolicyEngine:
-    def evaluate(self, plan: CommandPlan) -> PolicyDecision:
-        ...
+- `OllamaPlanner`: calls Ollama `/api/chat` and parses JSON.
+- `RulePlanner`: deterministic fallback.
+- `FallbackPlanner`: uses Ollama first, then rules.
+
+### 10.2 Agent Service
+
+```go
+type Agent interface {
+    CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
+    Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
+    RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse
+    SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse
+    Explain(command string) models.ExplainCommandResponse
+    ProjectContext(cwd string) models.ProjectContext
+    Phases() models.PhaseResponse
+    MockCapabilities() models.MockCapabilityResponse
+}
 ```
 
-### 10.3 `Executor`
+Current implementation: `internal/services.AgentService`.
 
-```python
-class Executor:
-    def run(
-        self,
-        command: str,
-        cwd: str,
-        timeout_seconds: int | None = None,
-    ) -> ExecutionResult:
-        ...
+### 10.3 Memory Store
+
+```go
+type Store interface {
+    RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error)
+    SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error)
+    Close() error
+}
 ```
 
-### 10.4 `MemoryRepository`
-
-```python
-class MemoryRepository:
-    def save_command_event(self, event: CommandEvent) -> str:
-        ...
-
-    def search_commands(
-        self,
-        query: str,
-        project_id: str | None,
-        cwd: str | None,
-        limit: int,
-    ) -> list[CommandSearchResult]:
-        ...
-```
+Current implementation: `internal/memory.PostgresStore`.
 
 ## 11. Suggested Project Structure
 
 ```text
 cli-agent/
-  termind/
-    cli/
-      app.py
-      renderer.py
+  backend/
+    cmd/
+      server/      HTTP API entrypoint
+      termind/     host CLI entrypoint
+    internal/
+      api/         routes, validation, JSON responses
+      config/      env configuration
+      memory/      Postgres store
+      models/      API contracts
+      planner/     Ollama planner and rule fallback
+      services/    agent service, policy, execution, roadmap metadata
 
-    agent/
-      planner.py
-      prompts.py
-      schemas.py
+  frontend/
+    src/           React/Vite product UI
 
-    context/
-      collector.py
-      git.py
-      project.py
-      shell.py
+  database/
+    init/          Postgres schema and seed data
 
-    execution/
-      executor.py
-      policy.py
-      risk.py
-
-    memory/
-      database.py
-      migrations.py
-      retrieval.py
-      embeddings.py
-
-    privacy/
-      redaction.py
-      filters.py
-
-    voice/
-      stt.py
-      microphone.py
-
-    config/
-      settings.py
+  docs/
+    phase_plan.md
 
   tests/
-  pyproject.toml
+    integration/   pytest API tests
+
+  docker-compose.yml
+  Makefile
   README.md
 ```
 
-## 12. V1 Build Plan
+## 12. Build Plan
 
-### Milestone 1: Local Command Planner
+### Milestone 1: Command Workbench
 
-- CLI prompt loop
+- React command workbench
+- Go API contracts
+- rule fallback planner
+- policy decision scaffold
+- CLI record path
+- Docker Compose stack
+
+### Milestone 2: Local LLM Planning
+
 - Ollama client
-- structured `CommandPlan` schema
-- simple context collector
-- plan rendering
+- structured `CommandPlan` JSON
+- invalid-output fallback
+- irrelevant request gating
+- planner/model runtime config
 
-### Milestone 2: Safe Execution
+### Milestone 3: Safe Execution
 
-- deterministic policy engine
-- confirmation prompt
-- command executor
-- stdout/stderr capture
-- cancellation and timeout
-
-### Milestone 3: Memory
-
-- SQLite schema
+- backend process runner
+- explicit approval requirement
+- stdout/stderr/exit-code capture
+- destructive command blocking
+- command timeout
 - command event persistence
+
+### Milestone 4: Persistent Memory
+
 - session persistence
-- FTS5 search
+- message persistence
+- learned project commands
+- richer keyword search
 - command search UI
 
-### Milestone 4: Retrieval-Augmented Planning
+### Milestone 5: Retrieval-Augmented Planning
 
 - retrieve recent and relevant commands before planning
 - add project command memory
 - show provenance for suggestions
 
-### Milestone 5: Semantic Search
+### Milestone 6: Semantic Search
 
 - local embeddings through Ollama
 - embedding storage
 - hybrid ranking
 
-### Milestone 6: Voice Input
+### Milestone 7: Voice Input
 
 - local speech-to-text
 - microphone input
@@ -990,17 +978,18 @@ cli-agent/
 
 ## 14. Recommended V1 Architecture Choice
 
-Use a simple in-process Python CLI first:
+Use the current local Go API plus host CLI split:
 
 ```text
-CLI process
-  -> Planner service
-  -> Policy service
-  -> Executor service
-  -> SQLite memory repository
+React frontend
+  -> Go API in Docker
+  -> Ollama on host
+  -> Postgres in Docker
+
+Host CLI
+  -> Go API for planning and policy
+  -> local host shell for execution
+  -> Go API for command-event recording
 ```
 
-Avoid a local HTTP server until there is a second client, such as a desktop UI, web UI, or shell integration.
-
-This keeps the system easy to debug while preserving clean boundaries for a future daemon.
-
+This preserves clear boundaries while supporting both a browser workbench and a real terminal workflow. The next split should move policy and execution into dedicated packages once streaming, cancellation, and richer rules are added.

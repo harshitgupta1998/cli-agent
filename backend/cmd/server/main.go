@@ -38,7 +38,7 @@ func main() {
 		)
 	}
 
-	agent := services.NewMockAgent(store, commandPlanner)
+	agent := services.NewAgentService(store, commandPlanner, cfg.CommandTimeout)
 	server := api.NewServer(cfg, agent)
 
 	log.Printf("Termind API listening on %s", cfg.HTTPAddr)

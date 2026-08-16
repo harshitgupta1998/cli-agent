@@ -1,10 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"errors"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -24,16 +26,17 @@ type Agent interface {
 	MockCapabilities() models.MockCapabilityResponse
 }
 
-type MockAgent struct {
-	memory  memory.Store
-	planner planner.Planner
+type AgentService struct {
+	memory         memory.Store
+	planner        planner.Planner
+	commandTimeout time.Duration
 }
 
-func NewMockAgent(memoryStore memory.Store, commandPlanner planner.Planner) MockAgent {
-	return MockAgent{memory: memoryStore, planner: commandPlanner}
+func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, commandTimeout time.Duration) AgentService {
+	return AgentService{memory: memoryStore, planner: commandPlanner, commandTimeout: commandTimeout}
 }
 
-func (m MockAgent) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {
+func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {
 	if !isTerminalRequest(payload.Input) {
 		return models.UserRequestResponse{
 			RequestID: "req_" + shortID(),
@@ -71,7 +74,8 @@ func (m MockAgent) CreateRequest(payload models.UserRequestCreate) models.UserRe
 	}
 }
 
-func (m MockAgent) Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse {
+func (m AgentService) Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse {
+	started := time.Now()
 	if payload.Confirmation.Status == models.ConfirmationRejected {
 		return models.CommandExecuteResponse{
 			CommandEventID: "cmd_" + shortID(),
@@ -83,30 +87,69 @@ func (m MockAgent) Execute(payload models.CommandExecuteRequest) models.CommandE
 		}
 	}
 
-	exitCode := 0
 	command := strings.TrimSpace(payload.Command)
-	stdout := fmt.Sprintf("Mock execution complete for: %s", command)
-
-	switch command {
-	case "lsof -i :8000":
-		stdout = "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME\npython3  92841 user   12u  IPv4 0x1234      0t0  TCP *:8000 (LISTEN)"
-	case "go run ./cmd/server":
-		stdout = "Termind API listening on :8000"
-	case "pwd":
-		stdout = payload.CWD
+	if blocked, reason := blockedCommand(command); blocked {
+		response := models.CommandExecuteResponse{
+			CommandEventID: "cmd_" + shortID(),
+			Status:         models.CommandStatusBlocked,
+			ExitCode:       nil,
+			Stdout:         "",
+			Stderr:         reason,
+			DurationMS:     int(time.Since(started).Milliseconds()),
+		}
+		if persistedID := m.persistExecution(payload, response); persistedID != "" {
+			response.CommandEventID = persistedID
+		}
+		return response
 	}
 
-	return models.CommandExecuteResponse{
+	timeout := m.commandTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Dir = payload.CWD
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	durationMS := int(time.Since(started).Milliseconds())
+	exitCode := 0
+	status := models.CommandStatusCompleted
+	if err != nil {
+		exitCode = 1
+		status = models.CommandStatusFailed
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			stderr.WriteString("\nCommand timed out.")
+		}
+	}
+
+	response := models.CommandExecuteResponse{
 		CommandEventID: "cmd_" + shortID(),
-		Status:         models.CommandStatusCompleted,
+		Status:         status,
 		ExitCode:       &exitCode,
-		Stdout:         stdout,
-		Stderr:         "",
-		DurationMS:     238,
+		Stdout:         stdout.String(),
+		Stderr:         stderr.String(),
+		DurationMS:     durationMS,
 	}
+	if persistedID := m.persistExecution(payload, response); persistedID != "" {
+		response.CommandEventID = persistedID
+	}
+	return response
 }
 
-func (m MockAgent) RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse {
+func (m AgentService) RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse {
 	if m.memory != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -124,7 +167,7 @@ func (m MockAgent) RecordCommand(payload models.CommandRecordRequest) models.Com
 	}
 }
 
-func (m MockAgent) SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse {
+func (m AgentService) SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse {
 	if m.memory != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -188,6 +231,94 @@ func (m MockAgent) SearchMemory(payload models.MemorySearchRequest) models.Memor
 	return models.MemorySearchResponse{Results: filtered[:limit]}
 }
 
+func (m AgentService) persistExecution(payload models.CommandExecuteRequest, response models.CommandExecuteResponse) string {
+	if m.memory == nil {
+		return ""
+	}
+
+	exitCode := 0
+	if response.ExitCode != nil {
+		exitCode = *response.ExitCode
+	}
+	confirmation := payload.Confirmation.Status
+	if response.Status == models.CommandStatusBlocked {
+		confirmation = models.ConfirmationRejected
+	}
+	risk := payload.RiskLevel
+	if risk == "" {
+		risk = "unknown"
+	}
+	shell := payload.Shell
+	if shell == "" {
+		shell = "sh"
+	}
+	userRequest := payload.UserRequest
+	if userRequest == "" {
+		userRequest = payload.Command
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	record, err := m.memory.RecordCommand(ctx, models.CommandRecordRequest{
+		SessionID:       payload.SessionID,
+		RequestID:       payload.RequestID,
+		UserRequest:     userRequest,
+		ProposedCommand: payload.Command,
+		FinalCommand:    payload.Command,
+		CWD:             payload.CWD,
+		Shell:           shell,
+		RiskLevel:       risk,
+		Confirmation:    confirmation,
+		ExitCode:        exitCode,
+		Stdout:          summarize(response.Stdout),
+		Stderr:          summarize(response.Stderr),
+		DurationMS:      response.DurationMS,
+	})
+	if err != nil {
+		return ""
+	}
+	return record.CommandEventID
+}
+
+func blockedCommand(command string) (bool, string) {
+	normalized := strings.ToLower(strings.TrimSpace(command))
+	if normalized == "" {
+		return true, "Empty commands cannot be executed."
+	}
+
+	blockedMarkers := []string{
+		"rm -rf",
+		"git reset --hard",
+		"git clean",
+		"docker system prune",
+		"mkfs",
+		":(){",
+		"dd if=",
+		"drop table",
+		"shutdown",
+		"reboot",
+	}
+	for _, marker := range blockedMarkers {
+		if strings.Contains(normalized, marker) {
+			return true, "Command blocked by Termind safety policy."
+		}
+	}
+	if strings.Contains(normalized, "sudo ") {
+		return true, "Privileged commands are blocked in backend execution for now."
+	}
+
+	return false, ""
+}
+
+func summarize(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 4000 {
+		return value
+	}
+	return value[:4000]
+}
+
 func isTerminalRequest(input string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(input))
 	if normalized == "" {
@@ -220,7 +351,7 @@ func isTerminalRequest(input string) bool {
 	}
 }
 
-func (m MockAgent) Explain(command string) models.ExplainCommandResponse {
+func (m AgentService) Explain(command string) models.ExplainCommandResponse {
 	normalized := strings.ToLower(command)
 
 	if strings.Contains(normalized, "kill") {
@@ -246,7 +377,7 @@ func (m MockAgent) Explain(command string) models.ExplainCommandResponse {
 	}
 }
 
-func (m MockAgent) ProjectContext(cwd string) models.ProjectContext {
+func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
 	return models.ProjectContext{
 		ProjectID: "prj_demo",
 		RootPath:  cwd,
@@ -274,9 +405,9 @@ func (m MockAgent) ProjectContext(cwd string) models.ProjectContext {
 	}
 }
 
-func (m MockAgent) Phases() models.PhaseResponse {
+func (m AgentService) Phases() models.PhaseResponse {
 	return models.PhaseResponse{
-		CurrentPhase: "phase_2",
+		CurrentPhase: "phase_3",
 		Phases: []models.Phase{
 			{
 				ID:          "phase_1",
@@ -321,16 +452,15 @@ func (m MockAgent) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_3",
 				Name:        "Safe Execution",
-				Status:      models.PhaseMocked,
-				Summary:     "Add controlled process execution with streaming, cancellation, timeout, and audit events.",
-				Deliverable: "A real executor that can run approved commands safely from the Go backend.",
+				Status:      models.PhaseReady,
+				Summary:     "Run approved commands through a controlled Go executor with timeout, output capture, blocking, and audit events.",
+				Deliverable: "A backend executor that runs approved commands and persists command events.",
 				Scope: []string{
 					"Process runner",
-					"PTY support",
-					"Streaming stdout and stderr",
-					"Cancellation",
+					"stdout and stderr capture",
 					"Timeout policy",
-					"Environment allowlist",
+					"Destructive command blocking",
+					"Postgres audit persistence",
 				},
 				MockAPIs: []string{
 					"POST /v1/commands/execute",
@@ -389,31 +519,31 @@ func (m MockAgent) Phases() models.PhaseResponse {
 	}
 }
 
-func (m MockAgent) MockCapabilities() models.MockCapabilityResponse {
+func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 	return models.MockCapabilityResponse{
 		Capabilities: []models.MockCapability{
 			{
 				ID:          "ollama_planner",
 				Phase:       "phase_2",
-				Status:      "mocked",
-				Description: "Static planner rules stand in for Ollama structured CommandPlan output.",
+				Status:      "ready",
+				Description: "Ollama generates structured CommandPlan output with deterministic fallback.",
 				Endpoints:   []string{"POST /v1/requests"},
 				NextSteps: []string{
-					"Create an Ollama client",
-					"Add request and response schema validation",
-					"Add model availability checks",
+					"Tune prompts with real user traces",
+					"Add model health checks",
+					"Add stricter command validation",
 				},
 			},
 			{
 				ID:          "command_executor",
 				Phase:       "phase_3",
-				Status:      "mocked",
-				Description: "Execution returns canned stdout, stderr, exit code, and duration without running a shell command.",
+				Status:      "ready",
+				Description: "Execution runs approved commands with timeout, captures output, blocks dangerous commands, and records audit events.",
 				Endpoints:   []string{"POST /v1/commands/execute"},
 				NextSteps: []string{
-					"Implement a controlled process runner",
 					"Add streaming output",
-					"Add cancellation and timeouts",
+					"Add cancellation",
+					"Add environment allowlist controls",
 				},
 			},
 			{

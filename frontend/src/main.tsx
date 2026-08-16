@@ -17,7 +17,7 @@ import {
 import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const defaultCwd = '/Users/example/projects/termind';
+const defaultCwd = '/app';
 
 type RiskLevel = 'safe' | 'modifying' | 'destructive' | 'privileged' | 'networked' | 'unknown';
 type RiskTone = 'good' | 'warn' | 'bad';
@@ -50,6 +50,7 @@ type RuntimeConfig = {
   ollama_base_url: string;
   ollama_model: string;
   planner_mode: string;
+  command_timeout_seconds: number;
   database: string;
   backend_runtime: string;
   mode: string;
@@ -227,14 +228,17 @@ function App() {
     try {
       const response = await requestJson<CommandExecution>('/v1/commands/execute', {
         method: 'POST',
-        body: JSON.stringify({
-          session_id: sessionId,
-          request_id: plan.request_id,
-          command: plan.plan.command,
-          cwd: plan.plan.cwd,
-          confirmation: {
-            status: 'approved',
-            approved_at: new Date().toISOString(),
+          body: JSON.stringify({
+            session_id: sessionId,
+            request_id: plan.request_id,
+            user_request: input,
+            command: plan.plan.command,
+            cwd: plan.plan.cwd,
+            shell: 'sh',
+            risk_level: plan.policy.risk,
+            confirmation: {
+              status: 'approved',
+              approved_at: new Date().toISOString(),
           },
         }),
       });
@@ -351,7 +355,7 @@ function App() {
             </article>
             <article>
               <span>Execution path</span>
-              <strong>CLI local shell</strong>
+              <strong>Backend shell, {config?.command_timeout_seconds || 30}s timeout</strong>
             </article>
           </div>
 
@@ -388,7 +392,7 @@ function App() {
                 </div>
                 <button className="primary-action" onClick={runCommand} disabled={loading || !plan.plan.command}>
                   <Play size={18} />
-                  Simulate API execution
+                  Run approved command
                 </button>
               </div>
 
@@ -413,7 +417,7 @@ function App() {
           {execution && (
             <div className="terminal-output">
               <div className="output-header">
-                <span>Mock API execution result</span>
+                <span>Execution result</span>
                 <span>exit {execution.exit_code ?? 'n/a'} · {execution.duration_ms}ms</span>
               </div>
               <pre>{execution.stdout || execution.stderr}</pre>

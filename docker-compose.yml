@@ -22,6 +22,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://termind:termind@database:5432/termind?sslmode=disable}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      PLANNER_MODE: ${PLANNER_MODE:-ollama}
+      COMMAND_TIMEOUT_SECONDS: ${COMMAND_TIMEOUT_SECONDS:-30}
       LOCAL_ONLY_MODE: ${LOCAL_ONLY_MODE:-true}
       CORS_ORIGIN: http://localhost:5173
     depends_on:

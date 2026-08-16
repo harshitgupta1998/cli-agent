@@ -7,7 +7,9 @@ This repository starts as a dockerized product template with:
 - React/Vite frontend
 - Go backend
 - Postgres database
-- Mock API responses for command planning, execution, memory search, and project context
+- Ollama-backed command planning
+- Controlled backend command execution
+- Postgres command-event memory
 
 ## Run Locally
 
@@ -26,7 +28,7 @@ Open:
 
 ```text
 frontend  React/Vite product UI
-backend   Go application and mock agent API
+backend   Go application API
 database  Postgres with seed schema
 ```
 
@@ -105,19 +107,30 @@ The backend reads:
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_MODEL=llama3.2:3b
 PLANNER_MODE=ollama
+COMMAND_TIMEOUT_SECONDS=30
 ```
 
 If Ollama is offline or returns invalid JSON, the backend falls back to the deterministic rule planner.
 
+## Safe Execution
+
+Phase 3 runs approved commands through the Go backend:
+
+- requires `confirmation.status=approved`
+- runs with `sh -c` from the requested `cwd`
+- captures stdout, stderr, exit code, and duration
+- blocks destructive or privileged patterns such as `rm -rf`, `git reset --hard`, `docker system prune`, and `sudo`
+- records execution events into Postgres when available
+
 ## Phase Plan
 
-Phase 1 is now solidified as the Command Workbench:
+The current flow is:
 
 ```text
-typed request -> command plan -> policy review -> approval -> mock execution -> remembered event
+typed request -> command plan -> policy review -> approval -> safe execution -> remembered event
 ```
 
-Later phases are mocked in the API and visible in the frontend so implementation can replace one mock at a time.
+Later phases are visible in the frontend so implementation can replace one mocked capability at a time.
 
 See [docs/phase_plan.md](docs/phase_plan.md).
 
@@ -158,21 +171,24 @@ To point pytest at a different backend URL:
 TERMIND_API_BASE_URL=http://localhost:8000 pytest
 ```
 
-## Current Mock Flow
+## Current Product Flow
 
-1. User types a terminal request in the frontend.
-2. Frontend calls `POST /v1/requests`.
-3. Backend returns a mock command plan.
-4. User clicks run.
-5. Frontend calls `POST /v1/commands/execute`.
-6. Backend returns a mock execution result.
-7. Memory search and project context endpoints return seeded examples.
+1. User types a terminal request in the frontend or CLI.
+2. Client calls `POST /v1/requests`.
+3. Backend uses Ollama for a structured command plan, with rule fallback.
+4. Backend applies deterministic policy and risk checks.
+5. User approves or rejects the proposed command.
+6. Frontend calls `POST /v1/commands/execute` to run inside the backend container, or the CLI runs locally on the user's machine.
+7. Execution captures stdout, stderr, exit code, and duration.
+8. Command events are persisted to Postgres and become searchable.
+
+Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
 ## Next Development Steps
 
-- Replace mock planner with Ollama structured output.
-- Replace mock execution with a sandboxed command executor.
-- Add deterministic policy rules.
-- Persist real command events to Postgres.
-- Add hybrid command retrieval.
-- Add CLI/TUI package.
+- Remove seeded fallback memory examples and return only persisted command events.
+- Persist real sessions, messages, and learned project commands.
+- Move policy and execution into dedicated packages.
+- Add streaming output and cancellation for backend execution.
+- Add real project context detection from `git`, lockfiles, and manifests.
+- Add hybrid semantic command retrieval with local Ollama embeddings.

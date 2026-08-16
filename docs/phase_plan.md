@@ -2,21 +2,21 @@
 
 ## Phase 1: Command Workbench
 
-Phase 1 proves the product loop without executing real shell commands:
+Phase 1 established the product shell and stable API contracts:
 
 ```text
-typed request -> command plan -> policy review -> user approval -> mock execution -> remembered event
+typed request -> command plan -> policy review -> user approval -> safe execution -> remembered event
 ```
 
 ### Phase 1 Deliverables
 
 - React TypeScript command workbench.
 - Go HTTP API with stable contracts.
-- Mock planner that returns structured command plans.
+- Rule planner that returns structured command plans.
 - Deterministic policy scaffold.
-- Mock executor that returns stdout, stderr, exit code, and duration.
+- Initial execution contract for stdout, stderr, exit code, and duration.
 - Postgres-backed command event recording.
-- Memory search over persisted command events, with seeded mock examples as fallback.
+- Memory search API over command events.
 - Project context mock.
 - Docker Compose stack for frontend, backend, and Postgres.
 
@@ -27,8 +27,8 @@ typed request -> command plan -> policy review -> user approval -> mock executio
 - User can submit a natural-language request.
 - Backend returns a structured `CommandPlan`.
 - Backend returns a policy decision.
-- User can run the approved mock command.
-- Backend returns a command-event-like execution result.
+- User can review and approve a proposed command.
+- Backend returns a command-event-shaped execution result.
 - CLI records locally executed command events through `POST /v1/commands/record`.
 - Memory search returns persisted command events.
 
@@ -55,22 +55,26 @@ Implemented shape:
 
 ## Phase 3: Safe Execution
 
-Replace mock execution with a controlled process runner.
+Implemented controlled backend process execution.
 
-Mocked today by:
+Implemented shape:
 
-- `POST /v1/commands/execute`
-- canned stdout/stderr/exit-code responses
+- `POST /v1/commands/execute` requires explicit approval before running.
+- The backend runs commands with `sh -c` from the requested `cwd`.
+- The executor captures stdout, stderr, exit code, and duration.
+- `COMMAND_TIMEOUT_SECONDS` bounds command runtime.
+- Destructive and privileged patterns are blocked before execution.
+- Execution events are persisted to Postgres when available.
 
 ## Phase 4: Persistent Memory
 
-Expand persistence beyond Phase 1 command events into full sessions, messages, learned project commands, and richer repository queries.
+Expand persistence beyond command events into full sessions, messages, learned project commands, and richer repository queries.
 
 Mocked today by:
 
 - static session creation
 - static project context
-- seeded fallback memory examples
+- seeded fallback memory examples when Postgres has no matching command
 
 ## Phase 5: Semantic Recall
 

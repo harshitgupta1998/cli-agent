@@ -15,6 +15,8 @@ const (
 
 	CommandStatusCompleted = "completed"
 	CommandStatusRejected  = "rejected"
+	CommandStatusBlocked   = "blocked"
+	CommandStatusFailed    = "failed"
 )
 
 type PhaseStatus string
@@ -107,8 +109,11 @@ type Confirmation struct {
 type CommandExecuteRequest struct {
 	SessionID    string       `json:"session_id"`
 	RequestID    string       `json:"request_id"`
+	UserRequest  string       `json:"user_request,omitempty"`
 	Command      string       `json:"command"`
 	CWD          string       `json:"cwd"`
+	Shell        string       `json:"shell,omitempty"`
+	RiskLevel    string       `json:"risk_level,omitempty"`
 	Confirmation Confirmation `json:"confirmation"`
 }
 

@@ -33,9 +33,16 @@ The API uses Ollama for Phase 2 command planning when configured:
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_MODEL=llama3.2:3b
 PLANNER_MODE=ollama
+COMMAND_TIMEOUT_SECONDS=30
 ```
 
 `internal/planner` contains the Ollama planner and deterministic fallback planner.
+
+## Safe Execution
+
+`POST /v1/commands/execute` runs approved commands through the backend process runner. It captures stdout, stderr, exit code, and duration, applies a small destructive-command denylist, and records command events to Postgres when the store is available.
+
+When the API is running in Docker, commands execute inside the backend container. Use `/app` as the frontend/default CWD for container execution. The CLI path is different: it gets plans from the API, then executes approved commands on the host from the directory where `termind` was launched.
 
 ## Test
 
@@ -57,7 +64,8 @@ cmd/server          process entrypoint
 internal/api        HTTP routing, CORS, validation, JSON helpers
 internal/config     environment configuration
 internal/models     request/response contracts
-internal/services   mock agent implementation
+internal/planner    Ollama and rule planners
+internal/services   agent service, policy, execution, roadmap metadata
 ```
 
 ## Phase Endpoints
@@ -67,11 +75,11 @@ GET /v1/phases
 GET /v1/mocks/capabilities
 ```
 
-These endpoints make the roadmap executable in the app. Phase 1 is the current working product surface; later phases are represented as explicit mocked capabilities.
+These endpoints make the roadmap executable in the app. Phase 3 is the current working product surface; later phases are represented as explicit mocked capabilities.
 
-The backend still uses mock responses. The next real implementation layers should be:
+The next real implementation layers should be:
 
 - `internal/policy` for deterministic command risk evaluation
-- `internal/executor` for controlled command execution and streaming
+- `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` support for sessions, messages, and learned project commands
-- `internal/ollama` for local LLM planning
+- real `internal/context` detection for git, package managers, and project stack

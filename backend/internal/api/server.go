@@ -48,14 +48,15 @@ func (s Server) health(w http.ResponseWriter, r *http.Request) {
 
 func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"product":         "Termind",
-		"local_only_mode": s.cfg.LocalOnlyMode == "true",
-		"ollama_base_url": s.cfg.OllamaBaseURL,
-		"ollama_model":    s.cfg.OllamaModel,
-		"planner_mode":    s.cfg.PlannerMode,
-		"database":        "postgres",
-		"backend_runtime": "go",
-		"mode":            "phase_2_local_llm",
+		"product":                 "Termind",
+		"local_only_mode":         s.cfg.LocalOnlyMode == "true",
+		"ollama_base_url":         s.cfg.OllamaBaseURL,
+		"ollama_model":            s.cfg.OllamaModel,
+		"planner_mode":            s.cfg.PlannerMode,
+		"command_timeout_seconds": int(s.cfg.CommandTimeout.Seconds()),
+		"database":                "postgres",
+		"backend_runtime":         "go",
+		"mode":                    "phase_3_safe_execution",
 	})
 }
 
