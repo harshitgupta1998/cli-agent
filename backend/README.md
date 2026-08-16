@@ -25,6 +25,18 @@ Run against the local API:
 
 The CLI asks the Go API for planning and policy, then executes approved commands locally from your current working directory.
 
+## Local LLM Planning
+
+The API uses Ollama for Phase 2 command planning when configured:
+
+```text
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=llama3.2:3b
+PLANNER_MODE=ollama
+```
+
+`internal/planner` contains the Ollama planner and deterministic fallback planner.
+
 ## Test
 
 ```bash

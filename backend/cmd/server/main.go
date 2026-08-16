@@ -9,6 +9,7 @@ import (
 	"github.com/harsgupta/termind/backend/internal/api"
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/memory"
+	"github.com/harsgupta/termind/backend/internal/planner"
 	"github.com/harsgupta/termind/backend/internal/services"
 )
 
@@ -28,7 +29,16 @@ func main() {
 		defer postgresStore.Close()
 	}
 
-	agent := services.NewMockAgent(store)
+	rulePlanner := planner.NewRulePlanner()
+	var commandPlanner planner.Planner = rulePlanner
+	if cfg.PlannerMode == "ollama" {
+		commandPlanner = planner.NewFallbackPlanner(
+			planner.NewOllamaPlanner(cfg.OllamaBaseURL, cfg.OllamaModel),
+			rulePlanner,
+		)
+	}
+
+	agent := services.NewMockAgent(store, commandPlanner)
 	server := api.NewServer(cfg, agent)
 
 	log.Printf("Termind API listening on %s", cfg.HTTPAddr)

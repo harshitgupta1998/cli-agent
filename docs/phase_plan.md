@@ -45,11 +45,13 @@ GET /v1/mocks/capabilities
 
 Replace static planner rules with Ollama structured output.
 
-Mocked today by:
+Implemented shape:
 
-- `POST /v1/requests`
-- static command-plan rules
-- provenance strings
+- `POST /v1/requests` calls Ollama `/api/chat` when `PLANNER_MODE=ollama`.
+- The planner asks Ollama for JSON-only `CommandPlan` output.
+- The app validates the response and keeps deterministic policy review.
+- Rule-based planning remains as fallback when Ollama is offline or invalid.
+- Default local model: `llama3.2:3b`.
 
 ## Phase 3: Safe Execution
 

@@ -89,6 +89,26 @@ Then you can run:
 termind
 ```
 
+## Local LLM Planner
+
+Phase 2 uses Ollama when available:
+
+```bash
+brew install ollama
+ollama serve
+ollama pull llama3.2:3b
+```
+
+The backend reads:
+
+```text
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=llama3.2:3b
+PLANNER_MODE=ollama
+```
+
+If Ollama is offline or returns invalid JSON, the backend falls back to the deterministic rule planner.
+
 ## Phase Plan
 
 Phase 1 is now solidified as the Command Workbench:

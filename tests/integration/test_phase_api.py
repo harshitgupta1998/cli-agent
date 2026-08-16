@@ -11,7 +11,9 @@ def test_config_reports_mock_go_backend(api):
     assert status == 200
     assert payload["product"] == "Termind"
     assert payload["backend_runtime"] == "go"
-    assert payload["mode"] == "mock"
+    assert payload["mode"] == "phase_2_local_llm"
+    assert payload["planner_mode"] in {"ollama", "rules"}
+    assert payload["ollama_model"]
     assert payload["local_only_mode"] is True
 
 
@@ -44,4 +46,3 @@ def test_later_phase_capabilities_are_exposed_as_mocks(api):
     assert capabilities["memory_store"]["phase"] == "phase_4"
     assert capabilities["semantic_recall"]["phase"] == "phase_5"
     assert capabilities["voice_input"]["phase"] == "phase_6"
-

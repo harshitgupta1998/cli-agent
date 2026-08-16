@@ -51,9 +51,11 @@ func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"product":         "Termind",
 		"local_only_mode": s.cfg.LocalOnlyMode == "true",
 		"ollama_base_url": s.cfg.OllamaBaseURL,
+		"ollama_model":    s.cfg.OllamaModel,
+		"planner_mode":    s.cfg.PlannerMode,
 		"database":        "postgres",
 		"backend_runtime": "go",
-		"mode":            "mock",
+		"mode":            "phase_2_local_llm",
 	})
 }
 

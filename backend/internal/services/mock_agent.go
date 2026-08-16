@@ -10,6 +10,7 @@ import (
 
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
+	"github.com/harsgupta/termind/backend/internal/planner"
 )
 
 type Agent interface {
@@ -24,15 +25,19 @@ type Agent interface {
 }
 
 type MockAgent struct {
-	memory memory.Store
+	memory  memory.Store
+	planner planner.Planner
 }
 
-func NewMockAgent(memoryStore memory.Store) MockAgent {
-	return MockAgent{memory: memoryStore}
+func NewMockAgent(memoryStore memory.Store, commandPlanner planner.Planner) MockAgent {
+	return MockAgent{memory: memoryStore, planner: commandPlanner}
 }
 
 func (m MockAgent) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {
-	intent, plan := m.inferPlan(payload.Input, payload.CWD)
+	intent, plan, err := m.planner.Plan(payload)
+	if err != nil {
+		intent, plan, _ = planner.NewRulePlanner().Plan(payload)
+	}
 
 	return models.UserRequestResponse{
 		RequestID: "req_" + shortID(),
@@ -395,72 +400,6 @@ func (m MockAgent) MockCapabilities() models.MockCapabilityResponse {
 				},
 			},
 		},
-	}
-}
-
-func (m MockAgent) inferPlan(userInput string, cwd string) (string, models.CommandPlan) {
-	normalized := strings.ToLower(userInput)
-
-	if strings.Contains(normalized, "port") && strings.Contains(normalized, "8000") {
-		return models.IntentExecuteCommand, models.CommandPlan{
-			Command:              "lsof -i :8000",
-			CWD:                  cwd,
-			Risk:                 models.RiskSafe,
-			RequiresConfirmation: true,
-			Reason:               "Lists processes listening on port 8000.",
-			Provenance: []string{
-				"The user asked about port 8000.",
-				"The command is read-only.",
-				"lsof is commonly available on macOS and Linux.",
-			},
-			Alternatives: []models.AlternativeCommand{
-				{
-					Command: "netstat -vanp tcp | grep 8000",
-					Reason:  "Alternative socket inspection command.",
-				},
-			},
-		}
-	}
-
-	if strings.Contains(normalized, "start") || strings.Contains(normalized, "run") || strings.Contains(normalized, "dev") {
-		return models.IntentExecuteCommand, models.CommandPlan{
-			Command:              "go run ./cmd/server",
-			CWD:                  cwd,
-			Risk:                 models.RiskModifying,
-			RequiresConfirmation: true,
-			Reason:               "Starts the remembered Go backend API for this project.",
-			Provenance: []string{
-				"This project is now a Go backend.",
-				"A similar command succeeded in the demo memory store.",
-				"Long-running development servers should be confirmed.",
-			},
-			Alternatives: []models.AlternativeCommand{},
-		}
-	}
-
-	if strings.Contains(normalized, "search") || strings.Contains(normalized, "find") || strings.Contains(normalized, "used") {
-		return models.IntentSearchHistory, models.CommandPlan{
-			Command:              "",
-			CWD:                  cwd,
-			Risk:                 models.RiskSafe,
-			RequiresConfirmation: false,
-			Reason:               "This request is best handled by command memory search.",
-			Provenance:           []string{"The user asked to find a remembered command."},
-			Alternatives:         []models.AlternativeCommand{},
-		}
-	}
-
-	return models.IntentExecuteCommand, models.CommandPlan{
-		Command:              "pwd",
-		CWD:                  cwd,
-		Risk:                 models.RiskSafe,
-		RequiresConfirmation: true,
-		Reason:               "Fallback mock command that shows the current working directory.",
-		Provenance: []string{
-			"No specialized mock planner rule matched this request.",
-			"pwd is safe and read-only.",
-		},
-		Alternatives: []models.AlternativeCommand{},
 	}
 }
 
