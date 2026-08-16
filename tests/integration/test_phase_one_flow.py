@@ -138,3 +138,34 @@ def test_validation_errors_are_explicit(api):
 
     assert status == 400
     assert payload == {"error": "input_required"}
+
+
+def test_irrelevant_request_does_not_search_or_plan_commands(api):
+    status, plan = api.post(
+        "/v1/requests",
+        {
+            "session_id": "ses_demo",
+            "input": "how to slap Ruth?",
+            "cwd": DEFAULT_CWD,
+        },
+    )
+
+    assert status == 200
+    assert plan["intent"] == "unknown"
+    assert plan["plan"]["command"] == ""
+    assert plan["policy"]["requires_confirmation"] is False
+
+
+def test_irrelevant_memory_query_returns_no_seeded_fallback(api):
+    status, memory = api.post(
+        "/v1/memory/search",
+        {
+            "query": "how to slap Ruth?",
+            "project_id": "prj_demo",
+            "cwd": DEFAULT_CWD,
+            "limit": 5,
+        },
+    )
+
+    assert status == 200
+    assert memory["results"] == []

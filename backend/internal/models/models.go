@@ -3,6 +3,7 @@ package models
 const (
 	IntentExecuteCommand = "execute_command"
 	IntentSearchHistory  = "search_history"
+	IntentUnknown        = "unknown"
 
 	RiskSafe        = "safe"
 	RiskModifying   = "modifying"

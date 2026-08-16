@@ -57,7 +57,10 @@ button {
 .memory-item p,
 .risk-card span,
 .status-line span,
-.signal-grid span {
+.signal-grid span,
+.runtime-grid span,
+.plan-meta span,
+.error-strip span {
   color: #9daaa1;
 }
 
@@ -100,6 +103,12 @@ button {
   gap: 16px;
 }
 
+.status-line strong {
+  max-width: 150px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .workspace {
   padding: 28px;
 }
@@ -137,6 +146,17 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   color: #c7d8ce;
+}
+
+.error-strip {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  border-radius: 8px;
+  background: rgba(83, 20, 20, 0.45);
 }
 
 .command-panel,
@@ -186,6 +206,27 @@ button {
   padding: 18px;
 }
 
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.runtime-grid article {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.runtime-grid strong {
+  overflow-wrap: anywhere;
+}
+
 .prompt-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -197,6 +238,12 @@ button {
   background: #0b0f0d;
 }
 
+.prompt-fields {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
 .prompt-row input {
   min-width: 0;
   height: 42px;
@@ -204,6 +251,12 @@ button {
   outline: 0;
   color: #f5fbf7;
   background: transparent;
+}
+
+.prompt-fields input + input {
+  height: 32px;
+  color: #bdd0c5;
+  font-size: 13px;
 }
 
 .prompt-row button,
@@ -229,6 +282,13 @@ button {
   padding: 0 18px;
 }
 
+.primary-action:disabled,
+.prompt-row button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .plan-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
@@ -241,6 +301,22 @@ button {
   padding: 16px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
+}
+
+.plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.plan-meta span {
+  min-height: 28px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 12px;
 }
 
 .section-label {
@@ -275,6 +351,18 @@ pre {
 .risk-card strong {
   font-size: 22px;
   text-transform: capitalize;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 6px;
+}
+
+.evidence-list p {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid rgba(125, 211, 166, 0.35);
+  color: #a9bbb0;
 }
 
 .risk-card.good {
@@ -376,6 +464,24 @@ pre {
   font-weight: 800;
 }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #dfe9e3;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.icon-button:hover {
+  border-color: rgba(125, 211, 166, 0.35);
+  background: rgba(125, 211, 166, 0.1);
+}
+
 .memory-list,
 .command-stack {
   display: grid;
@@ -455,6 +561,7 @@ pre {
 
   .topbar,
   .phase-banner,
+  .runtime-grid,
   .plan-grid,
   .phase-grid,
   .lower-grid {

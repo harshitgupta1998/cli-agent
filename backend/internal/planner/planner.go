@@ -68,15 +68,15 @@ func (p RulePlanner) Plan(payload models.UserRequestCreate) (string, models.Comm
 		}, nil
 	}
 
-	return models.IntentExecuteCommand, models.CommandPlan{
-		Command:              "pwd",
+	return models.IntentUnknown, models.CommandPlan{
+		Command:              "",
 		CWD:                  payload.CWD,
-		Risk:                 models.RiskSafe,
-		RequiresConfirmation: true,
-		Reason:               "Fallback command that shows the current working directory.",
+		Risk:                 "unknown",
+		RequiresConfirmation: false,
+		Reason:               "No specialized planner rule matched this request.",
 		Provenance: []string{
 			"No specialized planner rule matched this request.",
-			"pwd is safe and read-only.",
+			"Termind did not generate a fallback command without a clear terminal goal.",
 		},
 		Alternatives: []models.AlternativeCommand{},
 	}, nil

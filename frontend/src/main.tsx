@@ -1,6 +1,19 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CheckCircle2, Clock3, Database, Layers3, Play, Search, ShieldCheck, Terminal, Zap } from 'lucide-react';
+import {
+  Bot,
+  CheckCircle2,
+  Clock3,
+  Cpu,
+  Database,
+  Layers3,
+  Play,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Terminal,
+  Zap,
+} from 'lucide-react';
 import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -29,6 +42,17 @@ type CommandPlan = {
     command: string;
     reason: string;
   }>;
+};
+
+type RuntimeConfig = {
+  product: string;
+  local_only_mode: boolean;
+  ollama_base_url: string;
+  ollama_model: string;
+  planner_mode: string;
+  database: string;
+  backend_runtime: string;
+  mode: string;
 };
 
 type UserRequestResponse = {
@@ -124,6 +148,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 function App() {
   const [sessionId, setSessionId] = useState('ses_demo');
   const [input, setInput] = useState('what is using port 8000?');
+  const [cwd, setCwd] = useState(defaultCwd);
+  const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [plan, setPlan] = useState<UserRequestResponse | null>(null);
   const [execution, setExecution] = useState<CommandExecution | null>(null);
   const [memory, setMemory] = useState<MemorySearchResult[]>([]);
@@ -131,6 +157,7 @@ function App() {
   const [phaseResponse, setPhaseResponse] = useState<PhaseResponse | null>(null);
   const [capabilities, setCapabilities] = useState<MockCapability[]>([]);
   const [loading, setLoading] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
 
   const riskTone = useMemo<RiskTone>(() => {
     const risk = plan?.policy.risk || 'safe';
@@ -139,13 +166,17 @@ function App() {
 
   useEffect(() => {
     async function boot() {
+      setBootError(null);
+      const runtime = await requestJson<RuntimeConfig>('/v1/config');
+      setConfig(runtime);
+
       const session = await requestJson<{ session_id: string; project_id: string; started_at: string }>('/v1/sessions', {
         method: 'POST',
-        body: JSON.stringify({ cwd: defaultCwd, shell: 'zsh' }),
+        body: JSON.stringify({ cwd, shell: 'zsh' }),
       });
       setSessionId(session.session_id);
 
-      const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(defaultCwd)}`);
+      const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(cwd)}`);
       setProject(context);
 
       const phases = await requestJson<PhaseResponse>('/v1/phases');
@@ -157,8 +188,12 @@ function App() {
       await searchMemory('backend port command');
     }
 
-    boot().catch(console.error);
+    boot().catch((error: Error) => setBootError(error.message));
   }, []);
+
+  const currentPhase = useMemo(() => {
+    return phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase);
+  }, [phaseResponse]);
 
   async function submitRequest(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -169,12 +204,17 @@ function App() {
       const response = await requestJson<UserRequestResponse>('/v1/requests', {
         method: 'POST',
         body: JSON.stringify({
-          session_id: sessionId,
-          input,
-          cwd: defaultCwd,
-        }),
+            session_id: sessionId,
+            input,
+            cwd,
+          }),
       });
       setPlan(response);
+      const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(cwd)}`);
+      setProject(context);
+      if (response.intent === 'search_history') {
+        await searchMemory(input);
+      }
     } finally {
       setLoading(false);
     }
@@ -211,7 +251,7 @@ function App() {
       body: JSON.stringify({
         query,
         project_id: 'prj_demo',
-        cwd: defaultCwd,
+        cwd,
         limit: 5,
       }),
     });
@@ -222,16 +262,17 @@ function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <Terminal size={24} />
-          <div>
-            <strong>Termind</strong>
-            <span>Private terminal memory</span>
+            <Terminal size={24} />
+            <div>
+              <strong>Termind</strong>
+              <span>Local LLM terminal agent</span>
+            </div>
           </div>
-        </div>
 
         <nav className="nav-list">
           <button className="nav-item active"><Zap size={18} /> Agent</button>
           <button className="nav-item"><Database size={18} /> Memory</button>
+          <button className="nav-item"><Bot size={18} /> Planner</button>
           <button className="nav-item"><ShieldCheck size={18} /> Policy</button>
           <button className="nav-item"><Layers3 size={18} /> Phases</button>
         </nav>
@@ -242,12 +283,16 @@ function App() {
             <strong>Local only</strong>
           </div>
           <div className="status-line">
-            <span>Backend</span>
-            <strong>Mock API</strong>
+            <span>Planner</span>
+            <strong>{config?.planner_mode || 'loading'}</strong>
+          </div>
+          <div className="status-line">
+            <span>Model</span>
+            <strong>{config?.ollama_model || 'loading'}</strong>
           </div>
           <div className="status-line">
             <span>Database</span>
-            <strong>Postgres</strong>
+            <strong>{config?.database || 'Postgres'}</strong>
           </div>
         </section>
       </aside>
@@ -256,26 +301,34 @@ function App() {
         <header className="topbar">
           <div>
             <h1>Command workbench</h1>
-            <p>{project?.root_path || defaultCwd}</p>
+            <p>{project?.root_path || cwd}</p>
           </div>
           <div className="topbar-actions">
-            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_1'}</div>
+            <div className="pill"><Cpu size={16} /> {config?.mode || 'checking runtime'}</div>
+            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_2'}</div>
             <div className="pill"><Clock3 size={16} /> Session {sessionId}</div>
           </div>
         </header>
 
+        {bootError && (
+          <section className="error-strip">
+            <strong>API unavailable</strong>
+            <span>{bootError}</span>
+          </section>
+        )}
+
         <section className="phase-banner">
           <div>
             <div className="section-label">Current build target</div>
-            <h2>{phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase)?.name || 'Command Workbench'}</h2>
-            <p>{phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase)?.summary || 'Typed request to command plan, policy review, mock execution, and remembered command events.'}</p>
+            <h2>{currentPhase?.name || 'Local LLM Planner'}</h2>
+            <p>{currentPhase?.summary || 'Ollama-backed command planning, deterministic policy review, CLI execution, and persisted command memory.'}</p>
           </div>
           <div className="phase-checks">
-            {(phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase)?.scope || [
-              'React TypeScript command workbench',
-              'Go API contracts',
-              'Mock planner',
-              'Mock execution',
+            {(currentPhase?.scope || [
+              'Ollama JSON command planner',
+              'Rule planner fallback',
+              'Policy gate before execution',
+              'Postgres command memory',
             ]).slice(0, 4).map((item) => (
               <span key={item}><CheckCircle2 size={15} /> {item}</span>
             ))}
@@ -283,13 +336,40 @@ function App() {
         </section>
 
         <section className="command-panel">
+          <div className="runtime-grid">
+            <article>
+              <span>Planner engine</span>
+              <strong>{config?.planner_mode === 'ollama' ? 'Ollama local LLM' : config?.planner_mode || 'Loading'}</strong>
+            </article>
+            <article>
+              <span>Model</span>
+              <strong>{config?.ollama_model || 'Loading'}</strong>
+            </article>
+            <article>
+              <span>Backend</span>
+              <strong>{config?.backend_runtime || 'Go'}</strong>
+            </article>
+            <article>
+              <span>Execution path</span>
+              <strong>CLI local shell</strong>
+            </article>
+          </div>
+
           <form onSubmit={submitRequest} className="prompt-row">
             <Terminal size={20} />
-            <input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask for a command or search terminal memory"
-            />
+            <div className="prompt-fields">
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Ask for a command or search terminal memory"
+              />
+              <input
+                value={cwd}
+                onChange={(event) => setCwd(event.target.value)}
+                placeholder="Working directory"
+                aria-label="Working directory"
+              />
+            </div>
             <button type="submit" disabled={loading}>
               <Search size={18} />
               Plan
@@ -299,12 +379,16 @@ function App() {
           {plan && (
             <div className="plan-grid">
               <div className="plan-main">
-                <div className="section-label">Proposed command</div>
-                <pre>{plan.plan.command || 'Memory search request'}</pre>
+                <div className="section-label">{plan.intent === 'unknown' ? 'Out of scope' : 'Proposed command'}</div>
+                <pre>{plan.plan.command || (plan.intent === 'unknown' ? 'No command planned' : 'Memory search request')}</pre>
                 <p>{plan.plan.reason}</p>
+                <div className="plan-meta">
+                  <span>Intent: {plan.intent}</span>
+                  <span>CWD: {plan.plan.cwd}</span>
+                </div>
                 <button className="primary-action" onClick={runCommand} disabled={loading || !plan.plan.command}>
                   <Play size={18} />
-                  Run approved command
+                  Simulate API execution
                 </button>
               </div>
 
@@ -312,6 +396,13 @@ function App() {
                 <div className="section-label">Policy decision</div>
                 <strong>{plan.policy.risk}</strong>
                 <span>{plan.policy.requires_confirmation ? 'Confirmation required' : 'No confirmation required'}</span>
+                {plan.plan.provenance.length > 0 && (
+                  <div className="evidence-list">
+                    {plan.plan.provenance.map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                )}
                 {plan.policy.warnings.map((warning) => (
                   <p key={warning}>{warning}</p>
                 ))}
@@ -322,7 +413,7 @@ function App() {
           {execution && (
             <div className="terminal-output">
               <div className="output-header">
-                <span>Execution result</span>
+                <span>Mock API execution result</span>
                 <span>exit {execution.exit_code ?? 'n/a'} · {execution.duration_ms}ms</span>
               </div>
               <pre>{execution.stdout || execution.stderr}</pre>
@@ -352,6 +443,9 @@ function App() {
             <div className="section-title">
               <Database size={18} />
               Remembered commands
+              <button className="icon-button" onClick={() => searchMemory(input)} disabled={loading} title="Refresh memory">
+                <RefreshCw size={16} />
+              </button>
             </div>
             <div className="memory-list">
               {memory.map((item) => (

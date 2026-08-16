@@ -101,6 +101,11 @@ func handleRequest(client APIClient, sessionID string, cwd string, input string,
 		return err
 	}
 
+	if plan.Intent == models.IntentUnknown {
+		printUnsupported(plan)
+		return nil
+	}
+
 	if plan.Intent == models.IntentSearchHistory || strings.TrimSpace(plan.Plan.Command) == "" {
 		return printMemorySearch(client, input, cwd)
 	}
@@ -167,6 +172,21 @@ func printPlan(plan models.UserRequestResponse) {
 	}
 	if len(plan.Policy.Warnings) > 0 {
 		fmt.Println("Warnings:")
+		for _, warning := range plan.Policy.Warnings {
+			fmt.Printf("  - %s\n", warning)
+		}
+	}
+	fmt.Println()
+}
+
+func printUnsupported(plan models.UserRequestResponse) {
+	fmt.Println()
+	fmt.Println("I can help with terminal, project, shell, process, file, and command-memory requests.")
+	if strings.TrimSpace(plan.Plan.Reason) != "" {
+		fmt.Printf("Reason: %s\n", plan.Plan.Reason)
+	}
+	if len(plan.Policy.Warnings) > 0 {
+		fmt.Println("Try:")
 		for _, warning := range plan.Policy.Warnings {
 			fmt.Printf("  - %s\n", warning)
 		}
@@ -248,6 +268,11 @@ func printMemorySearch(client APIClient, query string, cwd string) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	if len(response.Results) == 0 {
+		fmt.Println("No relevant commands found.")
+		return nil
 	}
 
 	fmt.Println("Relevant commands:")

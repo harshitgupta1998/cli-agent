@@ -34,6 +34,30 @@ func NewMockAgent(memoryStore memory.Store, commandPlanner planner.Planner) Mock
 }
 
 func (m MockAgent) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {
+	if !isTerminalRequest(payload.Input) {
+		return models.UserRequestResponse{
+			RequestID: "req_" + shortID(),
+			Intent:    models.IntentUnknown,
+			Plan: models.CommandPlan{
+				Command:              "",
+				CWD:                  payload.CWD,
+				Risk:                 "unknown",
+				RequiresConfirmation: false,
+				Reason:               "This does not look like a terminal, project, shell, or command-memory request.",
+				Provenance: []string{
+					"Termind is scoped to local terminal assistance.",
+					"The request did not include a recognizable command, tool, file, process, project, or terminal-memory goal.",
+				},
+				Alternatives: []models.AlternativeCommand{},
+			},
+			Policy: models.PolicyDecision{
+				Risk:                 "unknown",
+				RequiresConfirmation: false,
+				Warnings:             []string{"Ask for a shell command, project action, process inspection, file operation, or command history search."},
+			},
+		}
+	}
+
 	intent, plan, err := m.planner.Plan(payload)
 	if err != nil {
 		intent, plan, _ = planner.NewRulePlanner().Plan(payload)
@@ -157,14 +181,43 @@ func (m MockAgent) SearchMemory(payload models.MemorySearchRequest) models.Memor
 			filtered = append(filtered, result)
 		}
 	}
-	if len(filtered) == 0 {
-		filtered = results
-	}
 	if limit > len(filtered) {
 		limit = len(filtered)
 	}
 
 	return models.MemorySearchResponse{Results: filtered[:limit]}
+}
+
+func isTerminalRequest(input string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(input))
+	if normalized == "" {
+		return false
+	}
+
+	terminalMarkers := []string{
+		"terminal", "shell", "command", "cli", "script", "process", "port", "server",
+		"file", "folder", "directory", "repo", "repository", "project", "path", "cwd",
+		"git", "docker", "compose", "npm", "node", "go ", "golang", "python", "pytest",
+		"test", "build", "run", "start", "stop", "kill", "list", "show", "find", "search",
+		"largest", "disk", "memory", "env", "logs", "error", "install", "make ",
+		"lsof", "pwd", "ls", "cd ", "du ", "df ", "ps ", "grep", "curl",
+	}
+	for _, marker := range terminalMarkers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+
+	firstToken := normalized
+	if fields := strings.Fields(normalized); len(fields) > 0 {
+		firstToken = fields[0]
+	}
+	switch firstToken {
+	case "ls", "pwd", "cd", "cat", "tail", "head", "mkdir", "touch", "cp", "mv", "rm", "find", "du", "df", "ps", "kill", "curl", "make":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m MockAgent) Explain(command string) models.ExplainCommandResponse {
@@ -223,21 +276,21 @@ func (m MockAgent) ProjectContext(cwd string) models.ProjectContext {
 
 func (m MockAgent) Phases() models.PhaseResponse {
 	return models.PhaseResponse{
-		CurrentPhase: "phase_1",
+		CurrentPhase: "phase_2",
 		Phases: []models.Phase{
 			{
 				ID:          "phase_1",
 				Name:        "Command Workbench",
 				Status:      models.PhaseReady,
-				Summary:     "Typed request to command plan, deterministic policy review, mock execution, and command-memory-shaped results.",
-				Deliverable: "A working product skeleton that proves the review-run-remember loop without real shell execution.",
+				Summary:     "Typed request to command plan, deterministic policy review, CLI execution, and persisted command memory.",
+				Deliverable: "A working product skeleton that proves the review-run-remember loop through the local CLI.",
 				Scope: []string{
 					"React TypeScript command workbench",
 					"Go API with typed request and response contracts",
-					"Mock command planner",
+					"Rule planner fallback",
 					"Deterministic policy review scaffold",
-					"Mock execution result capture",
-					"Mock memory search",
+					"CLI local command execution",
+					"Postgres command event persistence",
 					"Docker Compose for frontend, backend, and Postgres",
 				},
 				MockAPIs: []string{
@@ -250,18 +303,18 @@ func (m MockAgent) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_2",
 				Name:        "Local LLM Planning",
-				Status:      models.PhaseMocked,
-				Summary:     "Replace static planner rules with Ollama structured output while keeping policy and execution owned by the app.",
-				Deliverable: "Ollama-backed CommandPlan generation with schema validation and local-only mode.",
+				Status:      models.PhaseReady,
+				Summary:     "Use Ollama structured output for command planning while keeping policy and execution owned by the app.",
+				Deliverable: "Ollama-backed CommandPlan generation with validation, fallback handling, and local-only mode.",
 				Scope: []string{
-					"Ollama client",
-					"JSON schema validation",
-					"Prompt templates",
-					"Planner fallback handling",
-					"Model health checks",
+					"Ollama chat client",
+					"JSON plan validation",
+					"Command-planner prompt",
+					"Rule planner fallback handling",
+					"Runtime config surface",
 				},
 				MockAPIs: []string{
-					"GET /v1/mocks/capabilities",
+					"GET /v1/config",
 					"POST /v1/requests",
 				},
 			},
