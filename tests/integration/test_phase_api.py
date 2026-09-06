@@ -31,7 +31,7 @@ def test_phase_four_is_current_and_later_phases_are_mocked(api):
 
     assert phases["phase_2"]["status"] == "ready"
     assert phases["phase_3"]["status"] == "ready"
-    assert phases["phase_4"]["status"] == "in_progress"
+    assert phases["phase_4"]["status"] == "ready"
     assert phases["phase_5"]["status"] == "mocked"
     assert phases["phase_6"]["status"] == "planned"
 

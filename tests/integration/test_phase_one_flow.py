@@ -170,6 +170,8 @@ def test_successful_execution_learns_project_command(api):
     context_status, project = api.get("/v1/context/project", {"cwd": BACKEND_CWD})
     assert context_status == 200
     assert project["project_id"] == session["project_id"]
+    assert project["detected_stack"]["language"] == "go"
+    assert project["detected_stack"]["package_manager"] == "go modules"
     learned = {item["command"]: item for item in project["common_commands"]}
     assert command in learned
     assert learned[command]["success_count"] >= 1

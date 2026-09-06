@@ -74,6 +74,8 @@ internal/services   agent service, policy, execution, roadmap metadata
 
 `GET /v1/sessions/{session_id}/messages` returns persisted user and assistant messages for a session.
 
+`GET /v1/context/project` now returns the stored project ID for a CWD, learned project commands, lightweight git status when available, and stack hints from files such as `go.mod`, `package.json`, `pyproject.toml`, and `requirements.txt`.
+
 ## Phase Endpoints
 
 ```text
@@ -88,4 +90,4 @@ The next real implementation layers should be:
 - `internal/policy` for deterministic command risk evaluation
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
-- real `internal/context` detection for git, package managers, and project stack
+- richer `internal/context` detection from manifests and package scripts

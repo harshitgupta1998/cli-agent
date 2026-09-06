@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -402,19 +404,90 @@ func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
 	}
 
 	return models.ProjectContext{
-		ProjectID: projectID,
-		RootPath:  cwd,
-		Git: models.GitContext{
-			Branch:                "main",
-			HasUncommittedChanges: true,
-		},
-		DetectedStack: models.DetectedStack{
+		ProjectID:      projectID,
+		RootPath:       cwd,
+		Git:            detectGit(cwd),
+		DetectedStack:  detectStack(cwd),
+		CommonCommands: commonCommands,
+	}
+}
+
+func detectGit(cwd string) models.GitContext {
+	branchOutput, err := exec.Command("git", "-C", cwd, "branch", "--show-current").Output()
+	if err != nil {
+		return models.GitContext{
+			Branch:                "unknown",
+			HasUncommittedChanges: false,
+		}
+	}
+
+	statusOutput, err := exec.Command("git", "-C", cwd, "status", "--porcelain").Output()
+	hasChanges := false
+	if err == nil {
+		hasChanges = strings.TrimSpace(string(statusOutput)) != ""
+	}
+
+	branch := strings.TrimSpace(string(branchOutput))
+	if branch == "" {
+		branch = "unknown"
+	}
+	return models.GitContext{
+		Branch:                branch,
+		HasUncommittedChanges: hasChanges,
+	}
+}
+
+func detectStack(cwd string) models.DetectedStack {
+	switch {
+	case fileExists(cwd, "go.mod"):
+		return models.DetectedStack{
 			Language:       "go",
 			Framework:      "net/http",
 			PackageManager: "go modules",
-		},
-		CommonCommands: commonCommands,
+		}
+	case fileExists(cwd, "package.json"):
+		return models.DetectedStack{
+			Language:       "typescript",
+			Framework:      "react/vite",
+			PackageManager: detectNodePackageManager(cwd),
+		}
+	case fileExists(cwd, "pyproject.toml"):
+		return models.DetectedStack{
+			Language:       "python",
+			Framework:      "unknown",
+			PackageManager: "pyproject",
+		}
+	case fileExists(cwd, "requirements.txt"):
+		return models.DetectedStack{
+			Language:       "python",
+			Framework:      "unknown",
+			PackageManager: "pip",
+		}
+	default:
+		return models.DetectedStack{
+			Language:       "unknown",
+			Framework:      "unknown",
+			PackageManager: "unknown",
+		}
 	}
+}
+
+func detectNodePackageManager(cwd string) string {
+	switch {
+	case fileExists(cwd, "pnpm-lock.yaml"):
+		return "pnpm"
+	case fileExists(cwd, "yarn.lock"):
+		return "yarn"
+	case fileExists(cwd, "package-lock.json"):
+		return "npm"
+	default:
+		return "npm"
+	}
+}
+
+func fileExists(cwd string, name string) bool {
+	_, err := os.Stat(filepath.Join(cwd, name))
+	return err == nil
 }
 
 func (m AgentService) Phases() models.PhaseResponse {
@@ -481,9 +554,9 @@ func (m AgentService) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_4",
 				Name:        "Persistent Memory",
-				Status:      models.PhaseInProgress,
-				Summary:     "Persist real sessions, projects, and command events while removing fake command-history fallbacks.",
-				Deliverable: "Postgres-backed sessions, projects, and searchable command history.",
+				Status:      models.PhaseReady,
+				Summary:     "Persist real sessions, projects, messages, command events, and learned project commands.",
+				Deliverable: "Postgres-backed session memory, command history, and project command learning.",
 				Scope: []string{
 					"Repository layer",
 					"Command event persistence",
@@ -563,13 +636,13 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 			{
 				ID:          "memory_store",
 				Phase:       "phase_4",
-				Status:      "in_progress",
-				Description: "Sessions, projects, messages, and command events are persisted in Postgres; learned project commands remain next.",
+				Status:      "ready",
+				Description: "Sessions, projects, messages, command events, and learned project commands are persisted in Postgres.",
 				Endpoints:   []string{"POST /v1/memory/search"},
 				NextSteps: []string{
-					"Learn repeated project commands",
-					"Replace static project context",
 					"Add richer memory queries",
+					"Add memory pruning controls",
+					"Prepare hybrid semantic ranking",
 				},
 			},
 			{

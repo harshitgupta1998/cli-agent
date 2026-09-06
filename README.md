@@ -184,6 +184,7 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 8. Command events are persisted to Postgres and become searchable.
 9. Sessions, projects, and user/assistant messages are persisted to Postgres.
 10. Successful commands are learned as project common commands.
+11. Project context detects git state and stack hints when available.
 
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
@@ -191,5 +192,5 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 - Move policy and execution into dedicated packages.
 - Add streaming output and cancellation for backend execution.
-- Add real project context detection from `git`, lockfiles, and manifests.
+- Enrich project context with package scripts and manifest summaries.
 - Add hybrid semantic command retrieval with local Ollama embeddings.
