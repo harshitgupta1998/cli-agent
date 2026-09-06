@@ -49,6 +49,7 @@ type RuntimeConfig = {
   local_only_mode: boolean;
   ollama_base_url: string;
   ollama_model: string;
+  ollama_embed_model: string;
   planner_mode: string;
   command_timeout_seconds: number;
   database: string;
@@ -346,12 +347,12 @@ function App() {
               <strong>{config?.planner_mode === 'ollama' ? 'Ollama local LLM' : config?.planner_mode || 'Loading'}</strong>
             </article>
             <article>
-              <span>Model</span>
+              <span>Planner model</span>
               <strong>{config?.ollama_model || 'Loading'}</strong>
             </article>
             <article>
-              <span>Backend</span>
-              <strong>{config?.backend_runtime || 'Go'}</strong>
+              <span>Embedding model</span>
+              <strong>{config?.ollama_embed_model || 'Loading'}</strong>
             </article>
             <article>
               <span>Execution path</span>

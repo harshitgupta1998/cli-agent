@@ -92,9 +92,19 @@ Next refinements:
 
 Add local embeddings and hybrid ranking.
 
-Not implemented yet. Planned shape:
+Phase 5.1 and 5.2 split:
 
-- generate local embeddings with Ollama
+- 5.1: add embedding model config and Ollama embedding client
+- 5.2: embed new command events and store vectors in `command_embeddings`
+- 5.3: backfill existing command events
+- 5.4: add semantic search path
+- 5.5: add hybrid ranking
+- 5.6: use memory context in planning
+- 5.7: improve frontend memory UX
+
+Planned shape:
+
+- generate local embeddings with Ollama using `OLLAMA_EMBED_MODEL`
 - store vectors in `command_embeddings`
 - combine keyword match, semantic similarity, same project, same directory, recency, and success signals
 - expose provenance for why a command memory was retrieved

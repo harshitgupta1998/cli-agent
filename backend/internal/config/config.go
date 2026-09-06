@@ -7,26 +7,28 @@ import (
 )
 
 type Config struct {
-	HTTPAddr       string
-	DatabaseURL    string
-	OllamaBaseURL  string
-	OllamaModel    string
-	PlannerMode    string
-	CommandTimeout time.Duration
-	LocalOnlyMode  string
-	CORSOrigin     string
+	HTTPAddr         string
+	DatabaseURL      string
+	OllamaBaseURL    string
+	OllamaModel      string
+	OllamaEmbedModel string
+	PlannerMode      string
+	CommandTimeout   time.Duration
+	LocalOnlyMode    string
+	CORSOrigin       string
 }
 
 func Load() Config {
 	return Config{
-		HTTPAddr:       env("HTTP_ADDR", ":8000"),
-		DatabaseURL:    env("DATABASE_URL", "postgres://termind:termind@database:5432/termind?sslmode=disable"),
-		OllamaBaseURL:  env("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
-		OllamaModel:    env("OLLAMA_MODEL", "llama3.2:3b"),
-		PlannerMode:    env("PLANNER_MODE", "ollama"),
-		CommandTimeout: secondsEnv("COMMAND_TIMEOUT_SECONDS", 30),
-		LocalOnlyMode:  env("LOCAL_ONLY_MODE", "true"),
-		CORSOrigin:     env("CORS_ORIGIN", "http://localhost:5173"),
+		HTTPAddr:         env("HTTP_ADDR", ":8000"),
+		DatabaseURL:      env("DATABASE_URL", "postgres://termind:termind@database:5432/termind?sslmode=disable"),
+		OllamaBaseURL:    env("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+		OllamaModel:      env("OLLAMA_MODEL", "llama3.2:3b"),
+		OllamaEmbedModel: env("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+		PlannerMode:      env("PLANNER_MODE", "ollama"),
+		CommandTimeout:   secondsEnv("COMMAND_TIMEOUT_SECONDS", 30),
+		LocalOnlyMode:    env("LOCAL_ONLY_MODE", "true"),
+		CORSOrigin:       env("CORS_ORIGIN", "http://localhost:5173"),
 	}
 }
 

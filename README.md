@@ -128,6 +128,7 @@ Phase 2 uses Ollama when available:
 brew install ollama
 ollama serve
 ollama pull llama3.2:3b
+ollama pull nomic-embed-text
 ```
 
 The backend reads:
@@ -135,6 +136,7 @@ The backend reads:
 ```text
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_MODEL=llama3.2:3b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 PLANNER_MODE=ollama
 COMMAND_TIMEOUT_SECONDS=30
 ```

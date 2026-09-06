@@ -52,6 +52,7 @@ func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"local_only_mode":         s.cfg.LocalOnlyMode == "true",
 		"ollama_base_url":         s.cfg.OllamaBaseURL,
 		"ollama_model":            s.cfg.OllamaModel,
+		"ollama_embed_model":      s.cfg.OllamaEmbedModel,
 		"planner_mode":            s.cfg.PlannerMode,
 		"command_timeout_seconds": int(s.cfg.CommandTimeout.Seconds()),
 		"database":                "postgres",

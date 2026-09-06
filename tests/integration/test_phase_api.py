@@ -14,6 +14,7 @@ def test_config_reports_mock_go_backend(api):
     assert payload["mode"] == "phase_4_persistent_memory"
     assert payload["planner_mode"] in {"ollama", "rules"}
     assert payload["ollama_model"]
+    assert payload["ollama_embed_model"]
     assert payload["command_timeout_seconds"] > 0
     assert payload["local_only_mode"] is True
 

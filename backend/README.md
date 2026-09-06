@@ -41,11 +41,13 @@ The API uses Ollama for Phase 2 command planning when configured:
 ```text
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_MODEL=llama3.2:3b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 PLANNER_MODE=ollama
 COMMAND_TIMEOUT_SECONDS=30
 ```
 
 `internal/planner` contains the Ollama planner and deterministic fallback planner.
+`internal/embeddings` contains the Ollama embedding client used by Phase 5 semantic recall work.
 
 ## Safe Execution
 
