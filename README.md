@@ -10,6 +10,22 @@ This repository starts as a dockerized product template with:
 - Ollama-backed command planning
 - Controlled backend command execution
 - Postgres command-event memory
+- Persistent sessions, projects, messages, and learned project commands
+
+## Current Status
+
+Termind is currently at **Phase 4: Persistent Memory**.
+
+Implemented:
+
+- Phase 1: command workbench and API contracts
+- Phase 2: local Ollama command planning with rule fallback
+- Phase 3: safe backend execution with timeout, output capture, blocking, and audit records
+- Phase 4: persistent sessions, projects, messages, command events, and learned project commands
+
+Next:
+
+- Phase 5: semantic recall with local embeddings and hybrid ranking
 
 ## Run Locally
 
@@ -49,6 +65,18 @@ POST /v1/commands/record
 POST /v1/memory/search
 POST /v1/commands/explain
 GET  /v1/context/project
+```
+
+## Architecture Snapshot
+
+```text
+React frontend ─┐
+                ├─> Go API ─> Ollama on host
+Host CLI ───────┘        ├─> Postgres
+                         └─> backend container shell execution
+
+Host CLI execution path:
+Host CLI ─> Go API for planning/policy ─> local host shell ─> Go API record endpoint
 ```
 
 ## CLI Integration

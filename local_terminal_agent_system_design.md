@@ -1,5 +1,7 @@
 # Local Terminal Agent - System Design
 
+Current implementation status: Phase 4 is implemented. The active architecture is a React frontend, Go backend API, host CLI, local Ollama planner, and Postgres memory store.
+
 ## 1. Purpose
 
 Build a local-first terminal assistant that converts natural-language requests into safe, reviewable terminal actions, remembers command history as structured events, and helps the user retrieve and reuse useful commands later.
@@ -968,8 +970,8 @@ cli-agent/
 
 ## 13. Open Design Decisions
 
-- Should V1 be pure CLI or use a richer terminal UI library like Textual?
-- Should the app run as a short-lived CLI process or a persistent local daemon?
+- Should the CLI stay simple, or should it grow into a richer TUI?
+- Should the local API remain Docker-first, or become an installable host daemon?
 - Should full stdout/stderr be stored, or only redacted summaries by default?
 - Which commands are allowed to bypass confirmation?
 - Should users be able to define per-project command aliases?

@@ -2,6 +2,15 @@
 
 Go API service for the Termind product template.
 
+Current backend status: **Phase 4: Persistent Memory**.
+
+Implemented backend capabilities:
+
+- Ollama-backed command planning with rule fallback
+- deterministic policy review and out-of-scope request gating
+- approved command execution with timeout and blocking
+- Postgres-backed sessions, projects, messages, command events, and learned project commands
+
 ## Run
 
 ```bash
@@ -83,7 +92,7 @@ GET /v1/phases
 GET /v1/mocks/capabilities
 ```
 
-These endpoints make the roadmap executable in the app. Phase 3 is the current working product surface; later phases are represented as explicit mocked capabilities.
+These endpoints make the roadmap executable in the app. Phase 4 is the current working product surface; later phases are represented as explicit mocked capabilities.
 
 The next real implementation layers should be:
 

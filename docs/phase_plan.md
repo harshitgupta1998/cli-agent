@@ -1,5 +1,7 @@
 # Termind Phase Plan
 
+Current phase: **Phase 4 is implemented and ready**. The next product phase is **Phase 5: Semantic Recall**.
+
 ## Phase 1: Command Workbench
 
 Phase 1 established the product shell and stable API contracts:
@@ -17,7 +19,7 @@ typed request -> command plan -> policy review -> user approval -> safe executio
 - Initial execution contract for stdout, stderr, exit code, and duration.
 - Postgres-backed command event recording.
 - Memory search API over command events.
-- Project context mock.
+- Initial project context API.
 - Docker Compose stack for frontend, backend, and Postgres.
 
 ### Phase 1 Success Criteria
@@ -32,9 +34,9 @@ typed request -> command plan -> policy review -> user approval -> safe executio
 - CLI records locally executed command events through `POST /v1/commands/record`.
 - Memory search returns persisted command events.
 
-## Later Phase Mocks
+## Roadmap Metadata
 
-The backend exposes these planning endpoints so future work has stable placeholders:
+The backend exposes roadmap endpoints so future work has stable placeholders:
 
 ```text
 GET /v1/phases
@@ -90,16 +92,18 @@ Next refinements:
 
 Add local embeddings and hybrid ranking.
 
-Mocked today by:
+Not implemented yet. Planned shape:
 
-- memory search scores
-- matched reasons such as `semantic match`, `same project`, and `successful command`
+- generate local embeddings with Ollama
+- store vectors in `command_embeddings`
+- combine keyword match, semantic similarity, same project, same directory, recency, and success signals
+- expose provenance for why a command memory was retrieved
 
 ## Phase 6: Voice Input
 
 Add local speech-to-text as an input adapter.
 
-Mocked today by:
+Not implemented yet. Planned shape:
 
 - phase capability metadata only
 - the typed pipeline that voice will feed into later
