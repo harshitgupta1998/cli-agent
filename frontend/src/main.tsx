@@ -109,7 +109,7 @@ type ProjectContext = {
 type Phase = {
   id: string;
   name: string;
-  status: 'ready' | 'mocked' | 'planned' | 'blocked';
+  status: 'ready' | 'in_progress' | 'mocked' | 'planned' | 'blocked';
   summary: string;
   deliverable: string;
   scope: string[];

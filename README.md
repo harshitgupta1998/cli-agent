@@ -29,7 +29,7 @@ Open:
 ```text
 frontend  React/Vite product UI
 backend   Go application API
-database  Postgres with seed schema
+database  Postgres schema, learned at runtime
 ```
 
 ## Backend API
@@ -181,13 +181,14 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 6. Frontend calls `POST /v1/commands/execute` to run inside the backend container, or the CLI runs locally on the user's machine.
 7. Execution captures stdout, stderr, exit code, and duration.
 8. Command events are persisted to Postgres and become searchable.
+9. Sessions and projects are persisted to Postgres when created.
 
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
 ## Next Development Steps
 
-- Remove seeded fallback memory examples and return only persisted command events.
-- Persist real sessions, messages, and learned project commands.
+- Persist user/assistant messages for each request lifecycle.
+- Learn common project commands from successful repeated executions.
 - Move policy and execution into dedicated packages.
 - Add streaming output and cancellation for backend execution.
 - Add real project context detection from `git`, lockfiles, and manifests.

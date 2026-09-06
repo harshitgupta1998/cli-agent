@@ -57,7 +57,7 @@ def test_phase_one_review_run_remember_flow(api):
         "/v1/memory/search",
         {
             "query": "phase3 execute pwd",
-            "project_id": "prj_demo",
+            "project_id": session["project_id"],
             "cwd": BACKEND_CWD,
             "limit": 5,
         },
@@ -168,7 +168,7 @@ def test_cli_can_record_locally_executed_command_event(api):
         "/v1/memory/search",
         {
             "query": unique_query,
-            "project_id": "prj_demo",
+            "project_id": session["project_id"],
             "cwd": DEFAULT_CWD,
             "limit": 5,
         },

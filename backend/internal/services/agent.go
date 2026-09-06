@@ -182,7 +182,7 @@ func (m AgentService) RecordCommand(payload models.CommandRecordRequest) models.
 	return models.CommandRecordResponse{
 		CommandEventID: "cmd_" + shortID(),
 		Status:         models.CommandStatusCompleted,
-		Message:        "Command event accepted by mock recorder. Persistence comes in phase_4.",
+		Message:        "Command event accepted by fallback recorder. Postgres persistence is unavailable.",
 	}
 }
 
@@ -192,62 +192,12 @@ func (m AgentService) SearchMemory(payload models.MemorySearchRequest) models.Me
 		defer cancel()
 
 		response, err := m.memory.SearchCommands(ctx, payload)
-		if err == nil && len(response.Results) > 0 {
+		if err == nil {
 			return response
 		}
 	}
 
-	query := payload.Query
-	limit := payload.Limit
-	if limit <= 0 {
-		limit = 5
-	}
-
-	results := []models.MemorySearchResult{
-		{
-			CommandEventID: "cmd_demo_port",
-			Command:        "lsof -i :8000",
-			UserRequest:    "what is using port 8000?",
-			CWD:            "/Users/example/projects/termind",
-			ExitCode:       0,
-			Score:          0.94,
-			MatchedReasons: []string{"keyword match", "same project", "successful command"},
-			LastUsedAt:     "2026-08-14T19:20:00Z",
-		},
-		{
-			CommandEventID: "cmd_demo_kill",
-			Command:        "lsof -ti :8000 | xargs kill",
-			UserRequest:    "kill the backend process",
-			CWD:            "/Users/example/projects/termind",
-			ExitCode:       0,
-			Score:          0.88,
-			MatchedReasons: []string{"semantic match", "same project", "successful command"},
-			LastUsedAt:     "2026-08-13T16:45:00Z",
-		},
-		{
-			CommandEventID: "cmd_demo_dev",
-			Command:        "go run ./cmd/server",
-			UserRequest:    "start the backend server",
-			CWD:            "/Users/example/projects/termind",
-			ExitCode:       0,
-			Score:          0.81,
-			MatchedReasons: []string{"project command", "recency", "successful command"},
-			LastUsedAt:     "2026-08-12T10:15:00Z",
-		},
-	}
-
-	filtered := make([]models.MemorySearchResult, 0, len(results))
-	needle := strings.ToLower(query)
-	for _, result := range results {
-		if strings.Contains(strings.ToLower(result.UserRequest), needle) || strings.Contains(strings.ToLower(result.Command), needle) {
-			filtered = append(filtered, result)
-		}
-	}
-	if limit > len(filtered) {
-		limit = len(filtered)
-	}
-
-	return models.MemorySearchResponse{Results: filtered[:limit]}
+	return models.MemorySearchResponse{Results: []models.MemorySearchResult{}}
 }
 
 func (m AgentService) persistExecution(payload models.CommandExecuteRequest, response models.CommandExecuteResponse) string {
@@ -426,7 +376,7 @@ func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
 
 func (m AgentService) Phases() models.PhaseResponse {
 	return models.PhaseResponse{
-		CurrentPhase: "phase_3",
+		CurrentPhase: "phase_4",
 		Phases: []models.Phase{
 			{
 				ID:          "phase_1",
@@ -488,15 +438,15 @@ func (m AgentService) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_4",
 				Name:        "Persistent Memory",
-				Status:      models.PhaseMocked,
-				Summary:     "Persist sessions, messages, command events, and project commands instead of returning static mock data.",
-				Deliverable: "Postgres-backed command event store with searchable command history.",
+				Status:      models.PhaseInProgress,
+				Summary:     "Persist real sessions, projects, and command events while removing fake command-history fallbacks.",
+				Deliverable: "Postgres-backed sessions, projects, and searchable command history.",
 				Scope: []string{
 					"Repository layer",
 					"Command event persistence",
 					"Session persistence",
-					"Project command learning",
 					"Keyword search",
+					"Project command learning",
 				},
 				MockAPIs: []string{
 					"POST /v1/memory/search",
@@ -568,13 +518,13 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 			{
 				ID:          "memory_store",
 				Phase:       "phase_4",
-				Status:      "mocked",
-				Description: "Memory search returns seeded command events while the database schema is already present.",
+				Status:      "in_progress",
+				Description: "Sessions, projects, and command events are persisted in Postgres; messages and learned project commands remain next.",
 				Endpoints:   []string{"POST /v1/memory/search"},
 				NextSteps: []string{
-					"Add repository interfaces",
-					"Persist command events after execution",
-					"Search command_events with keyword ranking",
+					"Persist user and assistant messages",
+					"Learn repeated project commands",
+					"Replace static project context",
 				},
 			},
 			{

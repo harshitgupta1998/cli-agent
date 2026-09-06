@@ -418,6 +418,10 @@ pre {
   border-color: rgba(125, 211, 166, 0.35);
 }
 
+.phase-card.in_progress {
+  border-color: rgba(147, 197, 253, 0.45);
+}
+
 .phase-card.mocked {
   border-color: rgba(245, 198, 95, 0.28);
 }

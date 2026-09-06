@@ -22,10 +22,11 @@ const (
 type PhaseStatus string
 
 const (
-	PhaseReady   PhaseStatus = "ready"
-	PhaseMocked  PhaseStatus = "mocked"
-	PhasePlanned PhaseStatus = "planned"
-	PhaseBlocked PhaseStatus = "blocked"
+	PhaseReady      PhaseStatus = "ready"
+	PhaseInProgress PhaseStatus = "in_progress"
+	PhaseMocked     PhaseStatus = "mocked"
+	PhasePlanned    PhaseStatus = "planned"
+	PhaseBlocked    PhaseStatus = "blocked"
 )
 
 type Phase struct {

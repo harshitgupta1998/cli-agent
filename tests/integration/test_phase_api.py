@@ -11,18 +11,18 @@ def test_config_reports_mock_go_backend(api):
     assert status == 200
     assert payload["product"] == "Termind"
     assert payload["backend_runtime"] == "go"
-    assert payload["mode"] == "phase_3_safe_execution"
+    assert payload["mode"] == "phase_4_persistent_memory"
     assert payload["planner_mode"] in {"ollama", "rules"}
     assert payload["ollama_model"]
     assert payload["command_timeout_seconds"] > 0
     assert payload["local_only_mode"] is True
 
 
-def test_phase_three_is_current_and_later_phases_are_mocked(api):
+def test_phase_four_is_current_and_later_phases_are_mocked(api):
     status, payload = api.get("/v1/phases")
 
     assert status == 200
-    assert payload["current_phase"] == "phase_3"
+    assert payload["current_phase"] == "phase_4"
 
     phases = {phase["id"]: phase for phase in payload["phases"]}
     assert phases["phase_1"]["status"] == "ready"
@@ -31,7 +31,7 @@ def test_phase_three_is_current_and_later_phases_are_mocked(api):
 
     assert phases["phase_2"]["status"] == "ready"
     assert phases["phase_3"]["status"] == "ready"
-    assert phases["phase_4"]["status"] == "mocked"
+    assert phases["phase_4"]["status"] == "in_progress"
     assert phases["phase_5"]["status"] == "mocked"
     assert phases["phase_6"]["status"] == "planned"
 

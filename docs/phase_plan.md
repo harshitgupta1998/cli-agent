@@ -70,11 +70,18 @@ Implemented shape:
 
 Expand persistence beyond command events into full sessions, messages, learned project commands, and richer repository queries.
 
-Mocked today by:
+Implemented shape:
 
-- static session creation
+- `POST /v1/sessions` creates real session rows.
+- Projects are created or reused by `root_path`.
+- Command events attach to the session's project.
+- Memory search returns persisted command events or an empty result set.
+
+Remaining work:
+
+- message persistence
+- learned project commands
 - static project context
-- seeded fallback memory examples when Postgres has no matching command
 
 ## Phase 5: Semantic Recall
 

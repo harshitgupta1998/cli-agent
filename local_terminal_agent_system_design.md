@@ -899,7 +899,7 @@ cli-agent/
     src/           React/Vite product UI
 
   database/
-    init/          Postgres schema and seed data
+    init/          Postgres schema
 
   docs/
     phase_plan.md

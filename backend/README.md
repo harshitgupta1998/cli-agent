@@ -68,6 +68,10 @@ internal/planner    Ollama and rule planners
 internal/services   agent service, policy, execution, roadmap metadata
 ```
 
+## Persistent Memory
+
+`POST /v1/sessions` now creates real Postgres session rows and creates or reuses a project by root path. Command records attach to the session's project, and memory search returns persisted command events rather than service-level fake results.
+
 ## Phase Endpoints
 
 ```text
@@ -81,5 +85,5 @@ The next real implementation layers should be:
 
 - `internal/policy` for deterministic command risk evaluation
 - `internal/executor` for streaming and cancellation around the current process runner
-- expanded `internal/memory` support for sessions, messages, and learned project commands
+- expanded `internal/memory` support for messages and learned project commands
 - real `internal/context` detection for git, package managers, and project stack
