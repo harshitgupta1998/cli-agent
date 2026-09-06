@@ -1,6 +1,6 @@
 # Termind Phase Plan
 
-Current phase: **Phase 4 is implemented and ready**. The next product phase is **Phase 5: Semantic Recall**.
+Current phase: **Phase 5 is in progress**. Phase 5.1 and 5.2 are implemented; Phase 5.3 backfill and Phase 5.4 semantic search are next.
 
 ## Phase 1: Command Workbench
 
@@ -94,8 +94,8 @@ Add local embeddings and hybrid ranking.
 
 Phase 5.1 and 5.2 split:
 
-- 5.1: add embedding model config and Ollama embedding client
-- 5.2: embed new command events and store vectors in `command_embeddings`
+- 5.1: add embedding model config and Ollama embedding client - implemented
+- 5.2: embed new command events and store vectors in `command_embeddings` - implemented
 - 5.3: backfill existing command events
 - 5.4: add semantic search path
 - 5.5: add hybrid ranking

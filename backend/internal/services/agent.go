@@ -202,9 +202,10 @@ func (m AgentService) RecordCommand(payload models.CommandRecordRequest) models.
 	}
 
 	return models.CommandRecordResponse{
-		CommandEventID: "cmd_" + shortID(),
-		Status:         models.CommandStatusCompleted,
-		Message:        "Command event accepted by fallback recorder. Postgres persistence is unavailable.",
+		CommandEventID:  "cmd_" + shortID(),
+		Status:          models.CommandStatusCompleted,
+		Message:         "Command event accepted by fallback recorder. Postgres persistence is unavailable.",
+		EmbeddingStatus: "skipped",
 	}
 }
 
@@ -492,7 +493,7 @@ func fileExists(cwd string, name string) bool {
 
 func (m AgentService) Phases() models.PhaseResponse {
 	return models.PhaseResponse{
-		CurrentPhase: "phase_4",
+		CurrentPhase: "phase_5",
 		Phases: []models.Phase{
 			{
 				ID:          "phase_1",
@@ -573,15 +574,15 @@ func (m AgentService) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_5",
 				Name:        "Semantic Recall",
-				Status:      models.PhaseMocked,
-				Summary:     "Add local embeddings and hybrid ranking so users can find commands by intent, not only exact text.",
-				Deliverable: "Hybrid keyword, semantic, recency, project, and success ranking.",
+				Status:      models.PhaseInProgress,
+				Summary:     "Generate local command-event embeddings as the foundation for semantic memory search.",
+				Deliverable: "Ollama-backed embeddings stored for new command events.",
 				Scope: []string{
-					"Ollama embeddings",
-					"Embedding storage",
-					"Hybrid scorer",
-					"Same-project boost",
-					"Successful-command boost",
+					"Embedding model config",
+					"Ollama embedding client",
+					"New command-event embeddings",
+					"Hybrid scorer next",
+					"Semantic search next",
 				},
 				MockAPIs: []string{
 					"POST /v1/memory/search",
@@ -648,12 +649,12 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 			{
 				ID:          "semantic_recall",
 				Phase:       "phase_5",
-				Status:      "mocked",
-				Description: "Search results include mock ranking reasons before local embeddings are implemented.",
+				Status:      "in_progress",
+				Description: "New command events are embedded with Ollama; semantic search and hybrid ranking are next.",
 				Endpoints:   []string{"POST /v1/memory/search"},
 				NextSteps: []string{
-					"Generate local embeddings with Ollama",
-					"Store embeddings per command event",
+					"Backfill embeddings for existing events",
+					"Embed search queries",
 					"Blend semantic and structured ranking signals",
 				},
 			},

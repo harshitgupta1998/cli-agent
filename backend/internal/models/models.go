@@ -156,9 +156,11 @@ type CommandRecordRequest struct {
 }
 
 type CommandRecordResponse struct {
-	CommandEventID string `json:"command_event_id"`
-	Status         string `json:"status"`
-	Message        string `json:"message"`
+	CommandEventID  string `json:"command_event_id"`
+	Status          string `json:"status"`
+	Message         string `json:"message"`
+	EmbeddingStatus string `json:"embedding_status,omitempty"`
+	EmbeddingModel  string `json:"embedding_model,omitempty"`
 }
 
 type MemorySearchRequest struct {

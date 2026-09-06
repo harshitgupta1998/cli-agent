@@ -2,7 +2,7 @@
 
 Go API service for the Termind product template.
 
-Current backend status: **Phase 4: Persistent Memory**.
+Current backend status: **Phase 5: Semantic Recall**.
 
 Implemented backend capabilities:
 
@@ -10,6 +10,7 @@ Implemented backend capabilities:
 - deterministic policy review and out-of-scope request gating
 - approved command execution with timeout and blocking
 - Postgres-backed sessions, projects, messages, command events, and learned project commands
+- Ollama-backed embeddings for new command events when `OLLAMA_EMBED_MODEL` is available
 
 ## Run
 
@@ -87,6 +88,10 @@ internal/services   agent service, policy, execution, roadmap metadata
 
 `GET /v1/context/project` now returns the stored project ID for a CWD, learned project commands, lightweight git status when available, and stack hints from files such as `go.mod`, `package.json`, `pyproject.toml`, and `requirements.txt`.
 
+## Semantic Recall
+
+Phase 5.1 adds embedding configuration and the Ollama embedding client. Phase 5.2 stores embeddings for new command events in `command_embeddings`. Recording still succeeds when embedding generation fails, so missing local models do not break command memory.
+
 ## Phase Endpoints
 
 ```text
@@ -102,3 +107,4 @@ The next real implementation layers should be:
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
+- embedding backfill and hybrid semantic ranking

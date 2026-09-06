@@ -211,6 +211,7 @@ def test_cli_can_record_locally_executed_command_event(api):
     assert payload["status"] == "completed"
     assert payload["command_event_id"].startswith("cmd_")
     assert payload["message"] == "Command event persisted to Postgres."
+    assert payload["embedding_status"] in {"stored", "failed", "skipped"}
 
     search_status, search = api.post(
         "/v1/memory/search",

@@ -57,7 +57,7 @@ func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"command_timeout_seconds": int(s.cfg.CommandTimeout.Seconds()),
 		"database":                "postgres",
 		"backend_runtime":         "go",
-		"mode":                    "phase_4_persistent_memory",
+		"mode":                    "phase_5_semantic_recall",
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/harsgupta/termind/backend/internal/api"
 	"github.com/harsgupta/termind/backend/internal/config"
+	"github.com/harsgupta/termind/backend/internal/embeddings"
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/planner"
 	"github.com/harsgupta/termind/backend/internal/services"
@@ -20,7 +21,8 @@ func main() {
 	defer cancel()
 
 	var store memory.Store
-	postgresStore, err := memory.NewPostgresStore(ctx, cfg.DatabaseURL)
+	embedder := embeddings.NewOllamaEmbedder(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
+	postgresStore, err := memory.NewPostgresStore(ctx, cfg.DatabaseURL, embedder)
 	if err != nil {
 		log.Printf("Postgres unavailable, using in-memory mock search/record fallback: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/harsgupta/termind/backend/internal/embeddings"
 	"github.com/harsgupta/termind/backend/internal/models"
 )
 
@@ -27,10 +29,11 @@ type Store interface {
 }
 
 type PostgresStore struct {
-	db *sql.DB
+	db       *sql.DB
+	embedder embeddings.Embedder
 }
 
-func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, error) {
+func NewPostgresStore(ctx context.Context, databaseURL string, embedder embeddings.Embedder) (*PostgresStore, error) {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		return nil, err
@@ -44,7 +47,7 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		return nil, err
 	}
 
-	return &PostgresStore{db: db}, nil
+	return &PostgresStore{db: db, embedder: embedder}, nil
 }
 
 func (s *PostgresStore) Close() error {
@@ -236,11 +239,14 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 		return models.CommandRecordResponse{}, fmt.Errorf("record command event: %w", err)
 	}
 	_ = s.upsertProjectCommand(ctx, payload)
+	embeddingStatus := s.recordCommandEmbedding(id, payload)
 
 	return models.CommandRecordResponse{
-		CommandEventID: id,
-		Status:         models.CommandStatusCompleted,
-		Message:        "Command event persisted to Postgres.",
+		CommandEventID:  id,
+		Status:          models.CommandStatusCompleted,
+		Message:         "Command event persisted to Postgres.",
+		EmbeddingStatus: embeddingStatus,
+		EmbeddingModel:  s.embeddingModel(),
 	}, nil
 }
 
@@ -299,6 +305,78 @@ func (s *PostgresStore) upsertProjectCommand(ctx context.Context, payload models
 		return fmt.Errorf("upsert project command: %w", err)
 	}
 	return nil
+}
+
+func (s *PostgresStore) recordCommandEmbedding(commandEventID string, payload models.CommandRecordRequest) string {
+	if s.embedder == nil {
+		return "skipped"
+	}
+
+	input := embeddingInput(payload)
+	if input == "" {
+		return "skipped"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	vector, err := s.embedder.Embed(ctx, input)
+	if err != nil {
+		return "failed"
+	}
+	encoded, err := json.Marshal(vector)
+	if err != nil {
+		return "failed"
+	}
+
+	_, err = s.db.ExecContext(
+		ctx,
+		`
+		INSERT INTO command_embeddings (
+			command_event_id,
+			embedding_model,
+			embedding,
+			created_at
+		) VALUES ($1, $2, $3, now())
+		ON CONFLICT (command_event_id)
+		DO UPDATE SET
+			embedding_model = EXCLUDED.embedding_model,
+			embedding = EXCLUDED.embedding,
+			created_at = now()
+		`,
+		commandEventID,
+		s.embedder.Model(),
+		encoded,
+	)
+	if err != nil {
+		return "failed"
+	}
+	return "stored"
+}
+
+func (s *PostgresStore) embeddingModel() string {
+	if s.embedder == nil {
+		return ""
+	}
+	return s.embedder.Model()
+}
+
+func embeddingInput(payload models.CommandRecordRequest) string {
+	parts := []string{
+		"user request: " + strings.TrimSpace(payload.UserRequest),
+		"command: " + strings.TrimSpace(payload.FinalCommand),
+		"cwd: " + strings.TrimSpace(payload.CWD),
+		"stdout: " + strings.TrimSpace(payload.Stdout),
+		"stderr: " + strings.TrimSpace(payload.Stderr),
+	}
+
+	nonEmpty := []string{}
+	for _, part := range parts {
+		if !strings.HasSuffix(part, ": ") {
+			nonEmpty = append(nonEmpty, part)
+		}
+	}
+	return strings.Join(nonEmpty, "\n")
 }
 
 func (s *PostgresStore) ProjectCommands(ctx context.Context, cwd string) ([]models.ProjectCommand, error) {

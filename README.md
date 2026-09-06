@@ -14,7 +14,7 @@ This repository starts as a dockerized product template with:
 
 ## Current Status
 
-Termind is currently at **Phase 4: Persistent Memory**.
+Termind is currently at **Phase 5: Semantic Recall**.
 
 Implemented:
 
@@ -22,10 +22,13 @@ Implemented:
 - Phase 2: local Ollama command planning with rule fallback
 - Phase 3: safe backend execution with timeout, output capture, blocking, and audit records
 - Phase 4: persistent sessions, projects, messages, command events, and learned project commands
+- Phase 5.1: embedding model config and Ollama embedding client
+- Phase 5.2: embeddings for new command events
 
 Next:
 
-- Phase 5: semantic recall with local embeddings and hybrid ranking
+- Phase 5.3: embedding backfill for existing command events
+- Phase 5.4: semantic search and hybrid ranking
 
 ## Run Locally
 
@@ -215,6 +218,7 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 9. Sessions, projects, and user/assistant messages are persisted to Postgres.
 10. Successful commands are learned as project common commands.
 11. Project context detects git state and stack hints when available.
+12. New command events are embedded locally with Ollama when the embedding model is available.
 
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
@@ -223,4 +227,5 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 - Move policy and execution into dedicated packages.
 - Add streaming output and cancellation for backend execution.
 - Enrich project context with package scripts and manifest summaries.
+- Backfill embeddings for existing command events.
 - Add hybrid semantic command retrieval with local Ollama embeddings.
