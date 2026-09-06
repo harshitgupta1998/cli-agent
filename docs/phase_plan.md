@@ -74,12 +74,12 @@ Implemented shape:
 
 - `POST /v1/sessions` creates real session rows.
 - Projects are created or reused by `root_path`.
+- User and assistant messages are recorded for each planned request.
 - Command events attach to the session's project.
 - Memory search returns persisted command events or an empty result set.
 
 Remaining work:
 
-- message persistence
 - learned project commands
 - static project context
 

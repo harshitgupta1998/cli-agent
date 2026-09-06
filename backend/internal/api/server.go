@@ -26,6 +26,7 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /v1/config", s.getConfig)
 	mux.HandleFunc("POST /v1/sessions", s.createSession)
+	mux.HandleFunc("GET /v1/sessions/{session_id}/messages", s.listSessionMessages)
 	mux.HandleFunc("POST /v1/requests", s.submitRequest)
 	mux.HandleFunc("POST /v1/commands/execute", s.executeCommand)
 	mux.HandleFunc("POST /v1/commands/record", s.recordCommand)
@@ -73,6 +74,16 @@ func (s Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, s.agent.CreateSession(payload))
+}
+
+func (s Server) listSessionMessages(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("session_id"))
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id_required")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.agent.ListMessages(sessionID))
 }
 
 func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {

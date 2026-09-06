@@ -31,6 +31,14 @@ def test_phase_one_review_run_remember_flow(api):
     assert plan["plan"]["risk"] == "safe"
     assert plan["policy"]["requires_confirmation"] is True
 
+    messages_status, messages = api.get(f"/v1/sessions/{session['session_id']}/messages")
+    assert messages_status == 200
+    assert len(messages["messages"]) >= 2
+    assert messages["messages"][0]["role"] == "user"
+    assert messages["messages"][0]["content"] == "what is using port 8000?"
+    assert messages["messages"][1]["role"] == "assistant"
+    assert "lsof -i :8000" in messages["messages"][1]["content"]
+
     execute_status, result = api.post(
         "/v1/commands/execute",
         {

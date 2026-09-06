@@ -42,6 +42,7 @@ GET  /v1/config
 GET  /v1/phases
 GET  /v1/mocks/capabilities
 POST /v1/sessions
+GET  /v1/sessions/{session_id}/messages
 POST /v1/requests
 POST /v1/commands/execute
 POST /v1/commands/record
@@ -181,13 +182,12 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 6. Frontend calls `POST /v1/commands/execute` to run inside the backend container, or the CLI runs locally on the user's machine.
 7. Execution captures stdout, stderr, exit code, and duration.
 8. Command events are persisted to Postgres and become searchable.
-9. Sessions and projects are persisted to Postgres when created.
+9. Sessions, projects, and user/assistant messages are persisted to Postgres.
 
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
 ## Next Development Steps
 
-- Persist user/assistant messages for each request lifecycle.
 - Learn common project commands from successful repeated executions.
 - Move policy and execution into dedicated packages.
 - Add streaming output and cancellation for backend execution.

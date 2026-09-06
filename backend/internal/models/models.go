@@ -57,6 +57,18 @@ type MockCapabilityResponse struct {
 	Capabilities []MockCapability `json:"capabilities"`
 }
 
+type Message struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
+type MessageListResponse struct {
+	Messages []Message `json:"messages"`
+}
+
 type SessionCreateRequest struct {
 	CWD   string `json:"cwd"`
 	Shell string `json:"shell"`

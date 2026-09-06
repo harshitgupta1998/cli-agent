@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os/exec"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 type Agent interface {
 	CreateSession(payload models.SessionCreateRequest) models.SessionCreateResponse
+	ListMessages(sessionID string) models.MessageListResponse
 	CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
 	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
 	RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse
@@ -55,9 +57,23 @@ func (m AgentService) CreateSession(payload models.SessionCreateRequest) models.
 	}
 }
 
+func (m AgentService) ListMessages(sessionID string) models.MessageListResponse {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		response, err := m.memory.ListMessages(ctx, sessionID)
+		if err == nil {
+			return response
+		}
+	}
+
+	return models.MessageListResponse{Messages: []models.Message{}}
+}
+
 func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {
 	if !isTerminalRequest(payload.Input) {
-		return models.UserRequestResponse{
+		response := models.UserRequestResponse{
 			RequestID: "req_" + shortID(),
 			Intent:    models.IntentUnknown,
 			Plan: models.CommandPlan{
@@ -78,6 +94,8 @@ func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.Use
 				Warnings:             []string{"Ask for a shell command, project action, process inspection, file operation, or command history search."},
 			},
 		}
+		m.persistRequestMessages(payload, response)
+		return response
 	}
 
 	intent, plan, err := m.planner.Plan(payload)
@@ -85,12 +103,14 @@ func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.Use
 		intent, plan, _ = planner.NewRulePlanner().Plan(payload)
 	}
 
-	return models.UserRequestResponse{
+	response := models.UserRequestResponse{
 		RequestID: "req_" + shortID(),
 		Intent:    intent,
 		Plan:      plan,
 		Policy:    evaluatePolicy(plan),
 	}
+	m.persistRequestMessages(payload, response)
+	return response
 }
 
 func (m AgentService) Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse {
@@ -198,6 +218,22 @@ func (m AgentService) SearchMemory(payload models.MemorySearchRequest) models.Me
 	}
 
 	return models.MemorySearchResponse{Results: []models.MemorySearchResult{}}
+}
+
+func (m AgentService) persistRequestMessages(payload models.UserRequestCreate, response models.UserRequestResponse) {
+	if m.memory == nil || strings.TrimSpace(payload.SessionID) == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_ = m.memory.RecordMessage(ctx, payload.SessionID, "user", payload.Input)
+	content, err := json.Marshal(response)
+	if err != nil {
+		return
+	}
+	_ = m.memory.RecordMessage(ctx, payload.SessionID, "assistant", string(content))
 }
 
 func (m AgentService) persistExecution(payload models.CommandExecuteRequest, response models.CommandExecuteResponse) string {
@@ -445,11 +481,13 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Repository layer",
 					"Command event persistence",
 					"Session persistence",
+					"Message persistence",
 					"Keyword search",
 					"Project command learning",
 				},
 				MockAPIs: []string{
 					"POST /v1/memory/search",
+					"GET /v1/sessions/{session_id}/messages",
 				},
 			},
 			{
@@ -519,12 +557,12 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 				ID:          "memory_store",
 				Phase:       "phase_4",
 				Status:      "in_progress",
-				Description: "Sessions, projects, and command events are persisted in Postgres; messages and learned project commands remain next.",
+				Description: "Sessions, projects, messages, and command events are persisted in Postgres; learned project commands remain next.",
 				Endpoints:   []string{"POST /v1/memory/search"},
 				NextSteps: []string{
-					"Persist user and assistant messages",
 					"Learn repeated project commands",
 					"Replace static project context",
+					"Add richer memory queries",
 				},
 			},
 			{

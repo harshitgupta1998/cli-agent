@@ -17,6 +17,8 @@ import (
 
 type Store interface {
 	CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error)
+	RecordMessage(ctx context.Context, sessionID string, role string, content string) error
+	ListMessages(ctx context.Context, sessionID string) (models.MessageListResponse, error)
 	RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error)
 	SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error)
 	Close() error
@@ -81,6 +83,73 @@ func (s *PostgresStore) CreateSession(ctx context.Context, payload models.Sessio
 		ProjectID: projectID,
 		StartedAt: startedAt.Format(time.RFC3339),
 	}, nil
+}
+
+func (s *PostgresStore) RecordMessage(ctx context.Context, sessionID string, role string, content string) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`
+		INSERT INTO messages (
+			id,
+			session_id,
+			role,
+			content,
+			created_at
+		) VALUES ($1, $2, $3, $4, now())
+		`,
+		"msg_"+randomID(),
+		sessionID,
+		role,
+		content,
+	)
+	if err != nil {
+		return fmt.Errorf("record message: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) (models.MessageListResponse, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`
+		SELECT
+			id,
+			session_id,
+			role,
+			content,
+			created_at
+		FROM messages
+		WHERE session_id = $1
+		ORDER BY created_at ASC, id ASC
+		`,
+		sessionID,
+	)
+	if err != nil {
+		return models.MessageListResponse{}, fmt.Errorf("list messages: %w", err)
+	}
+	defer rows.Close()
+
+	messages := []models.Message{}
+	for rows.Next() {
+		var message models.Message
+		var createdAt time.Time
+		if err := rows.Scan(
+			&message.ID,
+			&message.SessionID,
+			&message.Role,
+			&message.Content,
+			&createdAt,
+		); err != nil {
+			return models.MessageListResponse{}, fmt.Errorf("scan message: %w", err)
+		}
+		message.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return models.MessageListResponse{}, fmt.Errorf("iterate messages: %w", err)
+	}
+
+	return models.MessageListResponse{Messages: messages}, nil
 }
 
 func (s *PostgresStore) ensureProject(ctx context.Context, rootPath string) (string, error) {
