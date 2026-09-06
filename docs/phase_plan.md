@@ -77,10 +77,10 @@ Implemented shape:
 - User and assistant messages are recorded for each planned request.
 - Command events attach to the session's project.
 - Memory search returns persisted command events or an empty result set.
+- Successful executions update learned project commands.
 
 Remaining work:
 
-- learned project commands
 - static project context
 
 ## Phase 5: Semantic Recall

@@ -183,12 +183,12 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 7. Execution captures stdout, stderr, exit code, and duration.
 8. Command events are persisted to Postgres and become searchable.
 9. Sessions, projects, and user/assistant messages are persisted to Postgres.
+10. Successful commands are learned as project common commands.
 
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
 ## Next Development Steps
 
-- Learn common project commands from successful repeated executions.
 - Move policy and execution into dedicated packages.
 - Add streaming output and cancellation for backend execution.
 - Add real project context detection from `git`, lockfiles, and manifests.

@@ -16,9 +16,11 @@ import (
 )
 
 type Store interface {
+	EnsureProject(ctx context.Context, rootPath string) (string, error)
 	CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error)
 	RecordMessage(ctx context.Context, sessionID string, role string, content string) error
 	ListMessages(ctx context.Context, sessionID string) (models.MessageListResponse, error)
+	ProjectCommands(ctx context.Context, cwd string) ([]models.ProjectCommand, error)
 	RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error)
 	SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error)
 	Close() error
@@ -50,7 +52,7 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error) {
-	projectID, err := s.ensureProject(ctx, payload.CWD)
+	projectID, err := s.EnsureProject(ctx, payload.CWD)
 	if err != nil {
 		return models.SessionCreateResponse{}, err
 	}
@@ -152,7 +154,7 @@ func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) (mod
 	return models.MessageListResponse{Messages: messages}, nil
 }
 
-func (s *PostgresStore) ensureProject(ctx context.Context, rootPath string) (string, error) {
+func (s *PostgresStore) EnsureProject(ctx context.Context, rootPath string) (string, error) {
 	var existingID string
 	err := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE root_path = $1`, rootPath).Scan(&existingID)
 	if err == nil {
@@ -233,12 +235,110 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 	if err != nil {
 		return models.CommandRecordResponse{}, fmt.Errorf("record command event: %w", err)
 	}
+	_ = s.upsertProjectCommand(ctx, payload)
 
 	return models.CommandRecordResponse{
 		CommandEventID: id,
 		Status:         models.CommandStatusCompleted,
 		Message:        "Command event persisted to Postgres.",
 	}, nil
+}
+
+func (s *PostgresStore) upsertProjectCommand(ctx context.Context, payload models.CommandRecordRequest) error {
+	command := strings.TrimSpace(payload.FinalCommand)
+	if command == "" {
+		return nil
+	}
+
+	successCount := 0
+	failureCount := 1
+	if payload.ExitCode == 0 {
+		successCount = 1
+		failureCount = 0
+	}
+
+	_, err := s.db.ExecContext(
+		ctx,
+		`
+		INSERT INTO project_commands (
+			id,
+			project_id,
+			command,
+			label,
+			success_count,
+			failure_count,
+			last_success_at
+		)
+		SELECT
+			$1,
+			project_id,
+			$2,
+			$3,
+			$4,
+			$5,
+			CASE WHEN $4 > 0 THEN now() ELSE NULL END
+		FROM sessions
+		WHERE id = $6
+		ON CONFLICT (project_id, command)
+		DO UPDATE SET
+			success_count = project_commands.success_count + EXCLUDED.success_count,
+			failure_count = project_commands.failure_count + EXCLUDED.failure_count,
+			last_success_at = CASE
+				WHEN EXCLUDED.success_count > 0 THEN now()
+				ELSE project_commands.last_success_at
+			END
+		`,
+		"pcmd_"+randomID(),
+		command,
+		commandLabel(command),
+		successCount,
+		failureCount,
+		payload.SessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert project command: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ProjectCommands(ctx context.Context, cwd string) ([]models.ProjectCommand, error) {
+	projectID, err := s.EnsureProject(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.QueryContext(
+		ctx,
+		`
+		SELECT
+			label,
+			command,
+			success_count
+		FROM project_commands
+		WHERE project_id = $1
+		ORDER BY success_count DESC, last_success_at DESC NULLS LAST, command ASC
+		LIMIT 8
+		`,
+		projectID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project commands: %w", err)
+	}
+	defer rows.Close()
+
+	commands := []models.ProjectCommand{}
+	for rows.Next() {
+		var command models.ProjectCommand
+		if err := rows.Scan(&command.Label, &command.Command, &command.SuccessCount); err != nil {
+			return nil, fmt.Errorf("scan project command: %w", err)
+		}
+		commands = append(commands, command)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate project commands: %w", err)
+	}
+
+	return commands, nil
 }
 
 func projectName(rootPath string) string {
@@ -248,6 +348,17 @@ func projectName(rootPath string) string {
 	}
 	parts := strings.Split(trimmed, "/")
 	return parts[len(parts)-1]
+}
+
+func commandLabel(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "Command"
+	}
+	if len(command) <= 64 {
+		return command
+	}
+	return command[:64]
 }
 
 func (s *PostgresStore) SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error) {

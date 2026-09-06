@@ -383,8 +383,26 @@ func (m AgentService) Explain(command string) models.ExplainCommandResponse {
 }
 
 func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
+	projectID := "prj_unknown"
+	commonCommands := []models.ProjectCommand{}
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		if id, err := m.memory.EnsureProject(ctx, cwd); err == nil {
+			projectID = id
+		}
+		commands, err := m.memory.ProjectCommands(ctx, cwd)
+		if err == nil {
+			commonCommands = commands
+		}
+	}
+	if len(commonCommands) == 0 {
+		commonCommands = []models.ProjectCommand{}
+	}
+
 	return models.ProjectContext{
-		ProjectID: "prj_demo",
+		ProjectID: projectID,
 		RootPath:  cwd,
 		Git: models.GitContext{
 			Branch:                "main",
@@ -395,18 +413,7 @@ func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
 			Framework:      "net/http",
 			PackageManager: "go modules",
 		},
-		CommonCommands: []models.ProjectCommand{
-			{
-				Label:        "Run backend API",
-				Command:      "go run ./cmd/server",
-				SuccessCount: 8,
-			},
-			{
-				Label:        "Inspect port 8000",
-				Command:      "lsof -i :8000",
-				SuccessCount: 4,
-			},
-		},
+		CommonCommands: commonCommands,
 	}
 }
 

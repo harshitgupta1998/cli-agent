@@ -137,6 +137,44 @@ def test_destructive_backend_execution_is_blocked(api):
     assert "blocked" in result["stderr"].lower()
 
 
+def test_successful_execution_learns_project_command(api):
+    unique_token = uuid4().hex
+    command = f"printf {unique_token}"
+    session_status, session = api.post(
+        "/v1/sessions",
+        {
+            "cwd": BACKEND_CWD,
+            "shell": "sh",
+        },
+    )
+    assert session_status == 200
+
+    execute_status, result = api.post(
+        "/v1/commands/execute",
+        {
+            "session_id": session["session_id"],
+            "request_id": "req_demo",
+            "user_request": "learn this project command",
+            "command": command,
+            "cwd": BACKEND_CWD,
+            "shell": "sh",
+            "risk_level": "safe",
+            "confirmation": {
+                "status": "approved",
+            },
+        },
+    )
+    assert execute_status == 200
+    assert result["status"] == "completed"
+
+    context_status, project = api.get("/v1/context/project", {"cwd": BACKEND_CWD})
+    assert context_status == 200
+    assert project["project_id"] == session["project_id"]
+    learned = {item["command"]: item for item in project["common_commands"]}
+    assert command in learned
+    assert learned[command]["success_count"] >= 1
+
+
 def test_cli_can_record_locally_executed_command_event(api):
     unique_query = f"pytest persisted command {uuid4().hex}"
     session_status, session = api.post(
