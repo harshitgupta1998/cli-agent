@@ -393,6 +393,14 @@ pre {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.output-meta {
+  padding: 8px 14px;
+  color: #7dd3a6;
+  background: rgba(125, 211, 166, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .lower-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
@@ -454,6 +462,10 @@ pre {
   border-radius: 8px;
   background: #070a09;
   font-size: 12px;
+}
+
+.api-list.complete code {
+  color: #7dd3a6;
 }
 
 .surface {
@@ -551,6 +563,10 @@ pre {
 .capability-item span {
   color: #7dd3a6;
   font-weight: 800;
+}
+
+.capability-item.planned span {
+  color: #93c5fd;
 }
 
 @media (max-width: 900px) {

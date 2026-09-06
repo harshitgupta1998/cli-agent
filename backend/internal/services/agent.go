@@ -138,8 +138,10 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 			Stderr:         reason,
 			DurationMS:     int(time.Since(started).Milliseconds()),
 		}
-		if persistedID := m.persistExecution(payload, response); persistedID != "" {
-			response.CommandEventID = persistedID
+		if record := m.persistExecution(payload, response); record.CommandEventID != "" {
+			response.CommandEventID = record.CommandEventID
+			response.EmbeddingStatus = record.EmbeddingStatus
+			response.EmbeddingModel = record.EmbeddingModel
 		}
 		return response
 	}
@@ -184,8 +186,10 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 		Stderr:         stderr.String(),
 		DurationMS:     durationMS,
 	}
-	if persistedID := m.persistExecution(payload, response); persistedID != "" {
-		response.CommandEventID = persistedID
+	if record := m.persistExecution(payload, response); record.CommandEventID != "" {
+		response.CommandEventID = record.CommandEventID
+		response.EmbeddingStatus = record.EmbeddingStatus
+		response.EmbeddingModel = record.EmbeddingModel
 	}
 	return response
 }
@@ -239,9 +243,9 @@ func (m AgentService) persistRequestMessages(payload models.UserRequestCreate, r
 	_ = m.memory.RecordMessage(ctx, payload.SessionID, "assistant", string(content))
 }
 
-func (m AgentService) persistExecution(payload models.CommandExecuteRequest, response models.CommandExecuteResponse) string {
+func (m AgentService) persistExecution(payload models.CommandExecuteRequest, response models.CommandExecuteResponse) models.CommandRecordResponse {
 	if m.memory == nil {
-		return ""
+		return models.CommandRecordResponse{}
 	}
 
 	exitCode := 0
@@ -284,9 +288,9 @@ func (m AgentService) persistExecution(payload models.CommandExecuteRequest, res
 		DurationMS:      response.DurationMS,
 	})
 	if err != nil {
-		return ""
+		return models.CommandRecordResponse{}
 	}
-	return record.CommandEventID
+	return record
 }
 
 func blockedCommand(command string) (bool, string) {
@@ -510,12 +514,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Postgres command event persistence",
 					"Docker Compose for frontend, backend, and Postgres",
 				},
-				MockAPIs: []string{
-					"POST /v1/requests",
-					"POST /v1/commands/execute",
-					"POST /v1/memory/search",
-					"GET /v1/context/project",
-				},
+				MockAPIs: []string{},
 			},
 			{
 				ID:          "phase_2",
@@ -530,10 +529,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Rule planner fallback handling",
 					"Runtime config surface",
 				},
-				MockAPIs: []string{
-					"GET /v1/config",
-					"POST /v1/requests",
-				},
+				MockAPIs: []string{},
 			},
 			{
 				ID:          "phase_3",
@@ -548,9 +544,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Destructive command blocking",
 					"Postgres audit persistence",
 				},
-				MockAPIs: []string{
-					"POST /v1/commands/execute",
-				},
+				MockAPIs: []string{},
 			},
 			{
 				ID:          "phase_4",
@@ -566,10 +560,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Keyword search",
 					"Project command learning",
 				},
-				MockAPIs: []string{
-					"POST /v1/memory/search",
-					"GET /v1/sessions/{session_id}/messages",
-				},
+				MockAPIs: []string{},
 			},
 			{
 				ID:          "phase_5",
@@ -585,7 +576,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Semantic search next",
 				},
 				MockAPIs: []string{
-					"POST /v1/memory/search",
+					"Semantic ranking in POST /v1/memory/search",
 				},
 			},
 			{

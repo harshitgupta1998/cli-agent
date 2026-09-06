@@ -28,12 +28,13 @@ def test_phase_five_is_current_and_later_phases_are_mocked(api):
     phases = {phase["id"]: phase for phase in payload["phases"]}
     assert phases["phase_1"]["status"] == "ready"
     assert phases["phase_1"]["name"] == "Command Workbench"
-    assert "POST /v1/requests" in phases["phase_1"]["mock_apis"]
+    assert phases["phase_1"]["mock_apis"] == []
 
     assert phases["phase_2"]["status"] == "ready"
     assert phases["phase_3"]["status"] == "ready"
     assert phases["phase_4"]["status"] == "ready"
     assert phases["phase_5"]["status"] == "in_progress"
+    assert "Semantic ranking in POST /v1/memory/search" in phases["phase_5"]["mock_apis"]
     assert phases["phase_6"]["status"] == "planned"
 
 

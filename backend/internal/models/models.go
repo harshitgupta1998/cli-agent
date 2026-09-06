@@ -131,12 +131,14 @@ type CommandExecuteRequest struct {
 }
 
 type CommandExecuteResponse struct {
-	CommandEventID string `json:"command_event_id"`
-	Status         string `json:"status"`
-	ExitCode       *int   `json:"exit_code"`
-	Stdout         string `json:"stdout"`
-	Stderr         string `json:"stderr"`
-	DurationMS     int    `json:"duration_ms"`
+	CommandEventID  string `json:"command_event_id"`
+	Status          string `json:"status"`
+	ExitCode        *int   `json:"exit_code"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	DurationMS      int    `json:"duration_ms"`
+	EmbeddingStatus string `json:"embedding_status,omitempty"`
+	EmbeddingModel  string `json:"embedding_model,omitempty"`
 }
 
 type CommandRecordRequest struct {

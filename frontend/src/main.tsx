@@ -75,6 +75,8 @@ type CommandExecution = {
   stdout: string;
   stderr: string;
   duration_ms: number;
+  embedding_status?: 'stored' | 'failed' | 'skipped';
+  embedding_model?: string;
 };
 
 type MemorySearchResult = {
@@ -197,6 +199,14 @@ function App() {
     return phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase);
   }, [phaseResponse]);
 
+  const activeCapabilities = useMemo(() => {
+    return capabilities.filter((capability) => capability.status !== 'planned');
+  }, [capabilities]);
+
+  const plannedCapabilities = useMemo(() => {
+    return capabilities.filter((capability) => capability.status === 'planned');
+  }, [capabilities]);
+
   async function submitRequest(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     setLoading(true);
@@ -206,10 +216,10 @@ function App() {
       const response = await requestJson<UserRequestResponse>('/v1/requests', {
         method: 'POST',
         body: JSON.stringify({
-            session_id: sessionId,
-            input,
-            cwd,
-          }),
+          session_id: sessionId,
+          input,
+          cwd,
+        }),
       });
       setPlan(response);
       const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(cwd)}`);
@@ -229,17 +239,17 @@ function App() {
     try {
       const response = await requestJson<CommandExecution>('/v1/commands/execute', {
         method: 'POST',
-          body: JSON.stringify({
-            session_id: sessionId,
-            request_id: plan.request_id,
-            user_request: input,
-            command: plan.plan.command,
-            cwd: plan.plan.cwd,
-            shell: 'sh',
-            risk_level: plan.policy.risk,
-            confirmation: {
-              status: 'approved',
-              approved_at: new Date().toISOString(),
+        body: JSON.stringify({
+          session_id: sessionId,
+          request_id: plan.request_id,
+          user_request: input,
+          command: plan.plan.command,
+          cwd: plan.plan.cwd,
+          shell: 'sh',
+          risk_level: plan.policy.risk,
+          confirmation: {
+            status: 'approved',
+            approved_at: new Date().toISOString(),
           },
         }),
       });
@@ -267,12 +277,12 @@ function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-            <Terminal size={24} />
-            <div>
-              <strong>Termind</strong>
-              <span>Local LLM terminal agent</span>
-            </div>
+          <Terminal size={24} />
+          <div>
+            <strong>Termind</strong>
+            <span>Local terminal copilot</span>
           </div>
+        </div>
 
         <nav className="nav-list">
           <button className="nav-item active"><Zap size={18} /> Agent</button>
@@ -296,6 +306,10 @@ function App() {
             <strong>{config?.ollama_model || 'loading'}</strong>
           </div>
           <div className="status-line">
+            <span>Embeddings</span>
+            <strong>{config?.ollama_embed_model || 'loading'}</strong>
+          </div>
+          <div className="status-line">
             <span>Database</span>
             <strong>{config?.database || 'Postgres'}</strong>
           </div>
@@ -310,7 +324,7 @@ function App() {
           </div>
           <div className="topbar-actions">
             <div className="pill"><Cpu size={16} /> {config?.mode || 'checking runtime'}</div>
-            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_2'}</div>
+            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_5'}</div>
             <div className="pill"><Clock3 size={16} /> Session {sessionId}</div>
           </div>
         </header>
@@ -325,15 +339,15 @@ function App() {
         <section className="phase-banner">
           <div>
             <div className="section-label">Current build target</div>
-            <h2>{currentPhase?.name || 'Local LLM Planner'}</h2>
-            <p>{currentPhase?.summary || 'Ollama-backed command planning, deterministic policy review, CLI execution, and persisted command memory.'}</p>
+            <h2>{currentPhase?.name || 'Semantic Recall'}</h2>
+            <p>{currentPhase?.summary || 'Local command-event embeddings are stored as the foundation for semantic memory search.'}</p>
           </div>
           <div className="phase-checks">
             {(currentPhase?.scope || [
-              'Ollama JSON command planner',
-              'Rule planner fallback',
-              'Policy gate before execution',
-              'Postgres command memory',
+              'Embedding model config',
+              'Ollama embedding client',
+              'New command-event embeddings',
+              'Semantic search next',
             ]).slice(0, 4).map((item) => (
               <span key={item}><CheckCircle2 size={15} /> {item}</span>
             ))}
@@ -419,8 +433,14 @@ function App() {
             <div className="terminal-output">
               <div className="output-header">
                 <span>Execution result</span>
-                <span>exit {execution.exit_code ?? 'n/a'} · {execution.duration_ms}ms</span>
+                <span>
+                  exit {execution.exit_code ?? 'n/a'} · {execution.duration_ms}ms
+                  {execution.embedding_status ? ` · embedding ${execution.embedding_status}` : ''}
+                </span>
               </div>
+              {execution.embedding_model && (
+                <div className="output-meta">Stored with {execution.embedding_model}</div>
+              )}
               <pre>{execution.stdout || execution.stderr}</pre>
             </div>
           )}
@@ -434,11 +454,17 @@ function App() {
                 <span>{phase.status}</span>
               </div>
               <p>{phase.summary}</p>
-              <div className="api-list">
-                {phase.mock_apis.slice(0, 3).map((api) => (
-                  <code key={api}>{api}</code>
-                ))}
-              </div>
+              {phase.mock_apis.length > 0 ? (
+                <div className="api-list">
+                  {phase.mock_apis.slice(0, 3).map((api) => (
+                    <code key={api}>{api}</code>
+                  ))}
+                </div>
+              ) : (
+                <div className="api-list complete">
+                  <code>Implemented</code>
+                </div>
+              )}
             </article>
           ))}
         </section>
@@ -489,16 +515,25 @@ function App() {
         <section className="surface mocks-surface">
           <div className="section-title">
             <Layers3 size={18} />
-            Later phase mocks
+            Capability roadmap
           </div>
           <div className="capability-list">
-            {capabilities.map((capability) => (
+            {activeCapabilities.map((capability) => (
               <article key={capability.id} className="capability-item">
                 <div>
                   <strong>{capability.id.replace(/_/g, ' ')}</strong>
                   <p>{capability.description}</p>
                 </div>
                 <span>{capability.phase}</span>
+              </article>
+            ))}
+            {plannedCapabilities.map((capability) => (
+              <article key={capability.id} className="capability-item planned">
+                <div>
+                  <strong>{capability.id.replace(/_/g, ' ')}</strong>
+                  <p>{capability.description}</p>
+                </div>
+                <span>{capability.status}</span>
               </article>
             ))}
           </div>
