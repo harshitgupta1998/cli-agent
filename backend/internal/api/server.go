@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/models"
@@ -73,11 +72,7 @@ func (s Server) createSession(w http.ResponseWriter, r *http.Request) {
 		payload.Shell = "zsh"
 	}
 
-	writeJSON(w, http.StatusOK, models.SessionCreateResponse{
-		SessionID: "ses_demo",
-		ProjectID: "prj_demo",
-		StartedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+	writeJSON(w, http.StatusOK, s.agent.CreateSession(payload))
 }
 
 func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {

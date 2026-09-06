@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 )
 
 type Store interface {
+	CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error)
 	RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error)
 	SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error)
 	Close() error
@@ -45,6 +47,75 @@ func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
 
+func (s *PostgresStore) CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error) {
+	projectID, err := s.ensureProject(ctx, payload.CWD)
+	if err != nil {
+		return models.SessionCreateResponse{}, err
+	}
+
+	sessionID := "ses_" + randomID()
+	startedAt := time.Now().UTC()
+	_, err = s.db.ExecContext(
+		ctx,
+		`
+		INSERT INTO sessions (
+			id,
+			project_id,
+			cwd,
+			shell,
+			started_at
+		) VALUES ($1, $2, $3, $4, $5)
+		`,
+		sessionID,
+		projectID,
+		payload.CWD,
+		payload.Shell,
+		startedAt,
+	)
+	if err != nil {
+		return models.SessionCreateResponse{}, fmt.Errorf("create session: %w", err)
+	}
+
+	return models.SessionCreateResponse{
+		SessionID: sessionID,
+		ProjectID: projectID,
+		StartedAt: startedAt.Format(time.RFC3339),
+	}, nil
+}
+
+func (s *PostgresStore) ensureProject(ctx context.Context, rootPath string) (string, error) {
+	var existingID string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE root_path = $1`, rootPath).Scan(&existingID)
+	if err == nil {
+		return existingID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("find project: %w", err)
+	}
+
+	projectID := "prj_" + randomID()
+	name := projectName(rootPath)
+	_, err = s.db.ExecContext(
+		ctx,
+		`
+		INSERT INTO projects (
+			id,
+			name,
+			root_path,
+			detected_stack_json
+		) VALUES ($1, $2, $3, '{}'::jsonb)
+		`,
+		projectID,
+		name,
+		rootPath,
+	)
+	if err != nil {
+		return "", fmt.Errorf("create project: %w", err)
+	}
+
+	return projectID, nil
+}
+
 func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error) {
 	id := "cmd_" + randomID()
 	confirmation := normalizeConfirmation(payload.Confirmation)
@@ -72,7 +143,7 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 			ended_at,
 			tags_json
 		) VALUES (
-			$1, $2, 'prj_demo', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now(), '[]'::jsonb
+			$1, $2, (SELECT project_id FROM sessions WHERE id = $2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now(), '[]'::jsonb
 		)
 		`,
 		id,
@@ -99,6 +170,15 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 		Status:         models.CommandStatusCompleted,
 		Message:        "Command event persisted to Postgres.",
 	}, nil
+}
+
+func projectName(rootPath string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rootPath), "/")
+	if trimmed == "" {
+		return "Unknown Project"
+	}
+	parts := strings.Split(trimmed, "/")
+	return parts[len(parts)-1]
 }
 
 func (s *PostgresStore) SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error) {

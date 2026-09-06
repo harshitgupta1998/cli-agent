@@ -16,6 +16,7 @@ import (
 )
 
 type Agent interface {
+	CreateSession(payload models.SessionCreateRequest) models.SessionCreateResponse
 	CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
 	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
 	RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse
@@ -34,6 +35,24 @@ type AgentService struct {
 
 func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, commandTimeout time.Duration) AgentService {
 	return AgentService{memory: memoryStore, planner: commandPlanner, commandTimeout: commandTimeout}
+}
+
+func (m AgentService) CreateSession(payload models.SessionCreateRequest) models.SessionCreateResponse {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		response, err := m.memory.CreateSession(ctx, payload)
+		if err == nil {
+			return response
+		}
+	}
+
+	return models.SessionCreateResponse{
+		SessionID: "ses_" + shortID(),
+		ProjectID: "prj_" + shortID(),
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+	}
 }
 
 func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse {

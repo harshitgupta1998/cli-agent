@@ -14,8 +14,8 @@ def test_phase_one_review_run_remember_flow(api):
         },
     )
     assert session_status == 200
-    assert session["session_id"] == "ses_demo"
-    assert session["project_id"] == "prj_demo"
+    assert session["session_id"].startswith("ses_")
+    assert session["project_id"].startswith("prj_")
 
     request_status, plan = api.post(
         "/v1/requests",
@@ -69,10 +69,19 @@ def test_phase_one_review_run_remember_flow(api):
 
 
 def test_rejected_command_returns_rejected_status(api):
+    session_status, session = api.post(
+        "/v1/sessions",
+        {
+            "cwd": BACKEND_CWD,
+            "shell": "sh",
+        },
+    )
+    assert session_status == 200
+
     status, result = api.post(
         "/v1/commands/execute",
         {
-            "session_id": "ses_demo",
+            "session_id": session["session_id"],
             "request_id": "req_demo",
             "command": "pwd",
             "cwd": BACKEND_CWD,
@@ -89,10 +98,19 @@ def test_rejected_command_returns_rejected_status(api):
 
 
 def test_destructive_backend_execution_is_blocked(api):
+    session_status, session = api.post(
+        "/v1/sessions",
+        {
+            "cwd": BACKEND_CWD,
+            "shell": "sh",
+        },
+    )
+    assert session_status == 200
+
     status, result = api.post(
         "/v1/commands/execute",
         {
-            "session_id": "ses_demo",
+            "session_id": session["session_id"],
             "request_id": "req_demo",
             "user_request": "try destructive command",
             "command": "rm -rf /tmp/termind-test",
@@ -113,10 +131,19 @@ def test_destructive_backend_execution_is_blocked(api):
 
 def test_cli_can_record_locally_executed_command_event(api):
     unique_query = f"pytest persisted command {uuid4().hex}"
+    session_status, session = api.post(
+        "/v1/sessions",
+        {
+            "cwd": DEFAULT_CWD,
+            "shell": "zsh",
+        },
+    )
+    assert session_status == 200
+
     status, payload = api.post(
         "/v1/commands/record",
         {
-            "session_id": "ses_demo",
+            "session_id": session["session_id"],
             "request_id": "req_demo",
             "user_request": unique_query,
             "proposed_command": "pwd",
