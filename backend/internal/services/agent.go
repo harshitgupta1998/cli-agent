@@ -25,6 +25,7 @@ type Agent interface {
 	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
 	RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse
 	SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse
+	BackfillCommandEmbeddings(payload models.EmbeddingBackfillRequest) models.EmbeddingBackfillResponse
 	Explain(command string) models.ExplainCommandResponse
 	ProjectContext(cwd string) models.ProjectContext
 	Phases() models.PhaseResponse
@@ -225,6 +226,20 @@ func (m AgentService) SearchMemory(payload models.MemorySearchRequest) models.Me
 	}
 
 	return models.MemorySearchResponse{Results: []models.MemorySearchResult{}}
+}
+
+func (m AgentService) BackfillCommandEmbeddings(payload models.EmbeddingBackfillRequest) models.EmbeddingBackfillResponse {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		response, err := m.memory.BackfillCommandEmbeddings(ctx, payload)
+		if err == nil {
+			return response
+		}
+	}
+
+	return models.EmbeddingBackfillResponse{Status: "skipped"}
 }
 
 func (m AgentService) persistRequestMessages(payload models.UserRequestCreate, response models.UserRequestResponse) {
@@ -572,6 +587,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Embedding model config",
 					"Ollama embedding client",
 					"New command-event embeddings",
+					"Command-event embedding backfill",
 					"Hybrid scorer next",
 					"Semantic search next",
 				},

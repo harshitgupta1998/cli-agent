@@ -187,6 +187,19 @@ type MemorySearchResponse struct {
 	Results []MemorySearchResult `json:"results"`
 }
 
+type EmbeddingBackfillRequest struct {
+	Limit int `json:"limit"`
+}
+
+type EmbeddingBackfillResponse struct {
+	Status         string `json:"status"`
+	Scanned        int    `json:"scanned"`
+	Stored         int    `json:"stored"`
+	Failed         int    `json:"failed"`
+	Skipped        int    `json:"skipped"`
+	EmbeddingModel string `json:"embedding_model,omitempty"`
+}
+
 type ExplainCommandRequest struct {
 	Command string `json:"command"`
 	CWD     string `json:"cwd"`

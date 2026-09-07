@@ -25,6 +25,7 @@ type Store interface {
 	ProjectCommands(ctx context.Context, cwd string) ([]models.ProjectCommand, error)
 	RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error)
 	SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error)
+	BackfillCommandEmbeddings(ctx context.Context, payload models.EmbeddingBackfillRequest) (models.EmbeddingBackfillResponse, error)
 	Close() error
 }
 
@@ -352,6 +353,101 @@ func (s *PostgresStore) recordCommandEmbedding(commandEventID string, payload mo
 		return "failed"
 	}
 	return "stored"
+}
+
+func (s *PostgresStore) BackfillCommandEmbeddings(ctx context.Context, payload models.EmbeddingBackfillRequest) (models.EmbeddingBackfillResponse, error) {
+	response := models.EmbeddingBackfillResponse{
+		Status:         "completed",
+		EmbeddingModel: s.embeddingModel(),
+	}
+	if s.embedder == nil {
+		response.Status = "skipped"
+		return response, nil
+	}
+
+	limit := payload.Limit
+	if limit <= 0 || limit > 250 {
+		limit = 50
+	}
+
+	rows, err := s.db.QueryContext(
+		ctx,
+		`
+		SELECT
+			ce.id,
+			ce.session_id,
+			ce.user_request,
+			COALESCE(ce.proposed_command, ce.final_command),
+			ce.final_command,
+			ce.cwd,
+			ce.shell,
+			ce.risk_level,
+			ce.confirmation_status,
+			COALESCE(ce.exit_code, 0),
+			COALESCE(ce.stdout_summary, ''),
+			COALESCE(ce.stderr_summary, ''),
+			COALESCE(ce.duration_ms, 0)
+		FROM command_events ce
+		LEFT JOIN command_embeddings emb
+			ON emb.command_event_id = ce.id
+			AND emb.embedding_model = $1
+		WHERE emb.command_event_id IS NULL
+		ORDER BY ce.started_at ASC
+		LIMIT $2
+		`,
+		s.embedder.Model(),
+		limit,
+	)
+	if err != nil {
+		return models.EmbeddingBackfillResponse{}, fmt.Errorf("select command events for embedding backfill: %w", err)
+	}
+	defer rows.Close()
+
+	type backfillTarget struct {
+		id      string
+		payload models.CommandRecordRequest
+	}
+	targets := []backfillTarget{}
+	for rows.Next() {
+		var target backfillTarget
+		if err := rows.Scan(
+			&target.id,
+			&target.payload.SessionID,
+			&target.payload.UserRequest,
+			&target.payload.ProposedCommand,
+			&target.payload.FinalCommand,
+			&target.payload.CWD,
+			&target.payload.Shell,
+			&target.payload.RiskLevel,
+			&target.payload.Confirmation,
+			&target.payload.ExitCode,
+			&target.payload.Stdout,
+			&target.payload.Stderr,
+			&target.payload.DurationMS,
+		); err != nil {
+			return models.EmbeddingBackfillResponse{}, fmt.Errorf("scan command event for embedding backfill: %w", err)
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return models.EmbeddingBackfillResponse{}, fmt.Errorf("iterate command events for embedding backfill: %w", err)
+	}
+
+	for _, target := range targets {
+		response.Scanned++
+		switch s.recordCommandEmbedding(target.id, target.payload) {
+		case "stored":
+			response.Stored++
+		case "failed":
+			response.Failed++
+		default:
+			response.Skipped++
+		}
+	}
+	if response.Failed > 0 {
+		response.Status = "partial"
+	}
+	return response, nil
 }
 
 func (s *PostgresStore) embeddingModel() string {

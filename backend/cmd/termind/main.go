@@ -33,6 +33,8 @@ type localResult struct {
 func main() {
 	apiURL := flag.String("api", env("TERMIND_API_BASE_URL", "http://localhost:8000"), "Termind API base URL")
 	once := flag.String("once", "", "Run one request and exit")
+	backfillEmbeddings := flag.Bool("backfill-embeddings", false, "Backfill missing command-event embeddings and exit")
+	backfillLimit := flag.Int("backfill-limit", 50, "Maximum command events to backfill")
 	yes := flag.Bool("yes", false, "Auto-approve safe commands only")
 	timeout := flag.Duration("timeout", 30*time.Second, "Local command timeout")
 	flag.Parse()
@@ -49,6 +51,16 @@ func main() {
 
 	if err := client.waitHealthy(context.Background()); err != nil {
 		exitWithError(fmt.Errorf("Termind API is not reachable at %s: %w", *apiURL, err))
+	}
+
+	if *backfillEmbeddings {
+		response, err := client.backfillCommandEmbeddings(models.EmbeddingBackfillRequest{Limit: *backfillLimit})
+		if err != nil {
+			exitWithError(err)
+		}
+		fmt.Printf("Embedding backfill: %s\n", response.Status)
+		fmt.Printf("scanned=%d stored=%d failed=%d skipped=%d model=%s\n", response.Scanned, response.Stored, response.Failed, response.Skipped, response.EmbeddingModel)
+		return
 	}
 
 	session, err := client.createSession(cwd)
@@ -322,6 +334,12 @@ func (c APIClient) recordCommand(payload models.CommandRecordRequest) (models.Co
 func (c APIClient) searchMemory(payload models.MemorySearchRequest) (models.MemorySearchResponse, error) {
 	var response models.MemorySearchResponse
 	err := c.post("/v1/memory/search", payload, &response)
+	return response, err
+}
+
+func (c APIClient) backfillCommandEmbeddings(payload models.EmbeddingBackfillRequest) (models.EmbeddingBackfillResponse, error) {
+	var response models.EmbeddingBackfillResponse
+	err := c.post("/v1/memory/embeddings/backfill", payload, &response)
 	return response, err
 }
 

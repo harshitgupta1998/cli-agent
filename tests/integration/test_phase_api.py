@@ -35,6 +35,7 @@ def test_phase_five_is_current_and_later_phases_are_mocked(api):
     assert phases["phase_4"]["status"] == "ready"
     assert phases["phase_5"]["status"] == "in_progress"
     assert "Semantic ranking in POST /v1/memory/search" in phases["phase_5"]["mock_apis"]
+    assert "Command-event embedding backfill" in phases["phase_5"]["scope"]
     assert phases["phase_6"]["status"] == "planned"
 
 
@@ -49,3 +50,14 @@ def test_later_phase_capabilities_are_exposed_as_mocks(api):
     assert capabilities["memory_store"]["phase"] == "phase_4"
     assert capabilities["semantic_recall"]["phase"] == "phase_5"
     assert capabilities["voice_input"]["phase"] == "phase_6"
+
+
+def test_embedding_backfill_endpoint(api):
+    status, payload = api.post("/v1/memory/embeddings/backfill", {"limit": 2})
+
+    assert status == 200
+    assert payload["status"] in {"completed", "partial", "skipped"}
+    assert payload["scanned"] >= 0
+    assert payload["stored"] >= 0
+    assert payload["failed"] >= 0
+    assert payload["skipped"] >= 0

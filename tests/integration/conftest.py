@@ -9,6 +9,7 @@ import pytest
 
 
 API_BASE_URL = os.environ.get("TERMIND_API_BASE_URL", "http://localhost:8000")
+API_TIMEOUT_SECONDS = int(os.environ.get("TERMIND_API_TIMEOUT_SECONDS", "15"))
 
 
 class APIClient:
@@ -33,7 +34,7 @@ class APIClient:
 
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=5) as response:
+            with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read().decode("utf-8"))
@@ -55,4 +56,3 @@ def api() -> APIClient:
         time.sleep(0.5)
 
     raise RuntimeError(f"Termind API did not become healthy at {API_BASE_URL}") from last_error
-

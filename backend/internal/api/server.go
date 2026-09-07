@@ -31,6 +31,7 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/commands/execute", s.executeCommand)
 	mux.HandleFunc("POST /v1/commands/record", s.recordCommand)
 	mux.HandleFunc("POST /v1/memory/search", s.searchMemory)
+	mux.HandleFunc("POST /v1/memory/embeddings/backfill", s.backfillCommandEmbeddings)
 	mux.HandleFunc("POST /v1/commands/explain", s.explainCommand)
 	mux.HandleFunc("GET /v1/context/project", s.getProjectContext)
 	mux.HandleFunc("GET /v1/phases", s.getPhases)
@@ -149,6 +150,15 @@ func (s Server) searchMemory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, s.agent.SearchMemory(payload))
+}
+
+func (s Server) backfillCommandEmbeddings(w http.ResponseWriter, r *http.Request) {
+	var payload models.EmbeddingBackfillRequest
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.agent.BackfillCommandEmbeddings(payload))
 }
 
 func (s Server) explainCommand(w http.ResponseWriter, r *http.Request) {
