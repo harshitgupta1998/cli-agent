@@ -965,9 +965,12 @@ cli-agent/
 
 ### Milestone 7: Voice Input
 
-- local speech-to-text
-- microphone input
+- voice capability metadata and runtime config
+- local speech-to-text adapter spike
+- transcript creation endpoint
+- microphone input with editable transcript confirmation
 - same request pipeline as typed input
+- CLI voice command wrapper
 
 ## 13. Open Design Decisions
 

@@ -19,7 +19,7 @@ def test_config_reports_mock_go_backend(api):
     assert payload["local_only_mode"] is True
 
 
-def test_phase_five_is_current_and_later_phases_are_mocked(api):
+def test_phase_five_is_current_and_ready(api):
     status, payload = api.get("/v1/phases")
 
     assert status == 200
@@ -40,9 +40,12 @@ def test_phase_five_is_current_and_later_phases_are_mocked(api):
     assert "Hybrid keyword/semantic ranking" in phases["phase_5"]["scope"]
     assert "Frontend semantic match reasons" in phases["phase_5"]["scope"]
     assert phases["phase_6"]["status"] == "planned"
+    assert "6.1 voice capability metadata and config" in phases["phase_6"]["scope"]
+    assert "6.5 route confirmed transcript through planning and policy" in phases["phase_6"]["scope"]
+    assert phases["phase_6"]["mock_apis"] == ["GET /v1/mocks/capabilities"]
 
 
-def test_later_phase_capabilities_are_exposed_as_mocks(api):
+def test_capability_metadata_matches_completed_and_planned_phases(api):
     status, payload = api.get("/v1/mocks/capabilities")
 
     assert status == 200
@@ -52,7 +55,12 @@ def test_later_phase_capabilities_are_exposed_as_mocks(api):
     assert capabilities["command_executor"]["phase"] == "phase_3"
     assert capabilities["memory_store"]["phase"] == "phase_4"
     assert capabilities["semantic_recall"]["phase"] == "phase_5"
+    assert capabilities["semantic_recall"]["status"] == "ready"
+    assert capabilities["semantic_recall"]["endpoints"] == ["POST /v1/memory/search"]
     assert capabilities["voice_input"]["phase"] == "phase_6"
+    assert capabilities["voice_input"]["status"] == "planned"
+    assert capabilities["voice_input"]["next_steps"]
+    assert capabilities["voice_input"]["next_steps"][0].startswith("6.1")
 
 
 def test_embedding_backfill_endpoint(api):
@@ -64,3 +72,13 @@ def test_embedding_backfill_endpoint(api):
     assert payload["stored"] >= 0
     assert payload["failed"] >= 0
     assert payload["skipped"] >= 0
+    if payload["status"] != "skipped":
+        assert payload["embedding_model"]
+
+
+def test_embedding_backfill_accepts_default_limit(api):
+    status, payload = api.post("/v1/memory/embeddings/backfill", {})
+
+    assert status == 200
+    assert payload["status"] in {"completed", "partial", "skipped"}
+    assert set(payload).issuperset({"scanned", "stored", "failed", "skipped"})

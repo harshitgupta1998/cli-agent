@@ -32,7 +32,7 @@ Implemented:
 
 Next:
 
-- Phase 6: local voice input
+- Phase 6: local voice input, split into metadata/config, local STT adapter, transcript API, confirmation UI, request-pipeline integration, and CLI wrapper
 
 ## Run Locally
 

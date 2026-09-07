@@ -60,6 +60,9 @@ def test_phase_one_review_run_remember_flow(api):
     assert result["exit_code"] == 0
     assert result["stdout"].strip() == BACKEND_CWD
     assert result["duration_ms"] > 0
+    assert result["embedding_status"] in {"stored", "failed", "skipped"}
+    if result["embedding_status"] == "stored":
+        assert result["embedding_model"]
 
     memory_status, memory = api.post(
         "/v1/memory/search",
@@ -73,6 +76,7 @@ def test_phase_one_review_run_remember_flow(api):
     assert memory_status == 200
     assert memory["results"]
     assert memory["results"][0]["command"] == "pwd"
+    assert memory["results"][0]["score"] > 0
     assert "successful command" in memory["results"][0]["matched_reasons"]
 
 
@@ -276,6 +280,59 @@ def test_memory_search_can_fall_back_to_semantic_recall(api):
     assert search["results"]
     assert any(result["command"] == "pwd" for result in search["results"])
     assert any("semantic match" in result["matched_reasons"] for result in search["results"])
+
+
+def test_hybrid_ranking_prefers_terminal_intent_match(api):
+    session_status, session = api.post(
+        "/v1/sessions",
+        {
+            "cwd": BACKEND_CWD,
+            "shell": "sh",
+        },
+    )
+    assert session_status == 200
+
+    command_pairs = [
+        ("what is the file created last?", "find . -maxdepth 1 -type f -exec du -h {} + | sort -hr | head -n 1"),
+        ("print working directory", "pwd"),
+    ]
+    for user_request, command in command_pairs:
+        status, payload = api.post(
+            "/v1/commands/record",
+            {
+                "session_id": session["session_id"],
+                "request_id": f"req_{uuid4().hex}",
+                "user_request": user_request,
+                "proposed_command": command,
+                "final_command": command,
+                "cwd": BACKEND_CWD,
+                "shell": "sh",
+                "risk_level": "safe",
+                "confirmation": "approved",
+                "exit_code": 0,
+                "stdout": BACKEND_CWD,
+                "stderr": "",
+                "duration_ms": 5,
+            },
+        )
+        assert status == 200
+        if payload["embedding_status"] != "stored":
+            return
+
+    search_status, search = api.post(
+        "/v1/memory/search",
+        {
+            "query": "find earlier shell action for current directory location",
+            "project_id": session["project_id"],
+            "cwd": BACKEND_CWD,
+            "limit": 3,
+        },
+    )
+
+    assert search_status == 200
+    assert search["results"]
+    assert search["results"][0]["command"] == "pwd"
+    assert "semantic match" in search["results"][0]["matched_reasons"]
 
 
 def test_validation_errors_are_explicit(api):

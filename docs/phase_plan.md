@@ -112,7 +112,18 @@ Implemented shape:
 
 Add local speech-to-text as an input adapter.
 
-Not implemented yet. Planned shape:
+Not implemented yet. Planned checkpoints:
 
-- phase capability metadata only
-- the typed pipeline that voice will feed into later
+- 6.1: voice capability metadata, runtime config, and placeholder contracts
+- 6.2: local speech-to-text adapter spike, likely Whisper.cpp or an Ollama-compatible local STT option if available
+- 6.3: transcript endpoint that accepts an audio file and returns editable text plus confidence/source metadata
+- 6.4: frontend microphone control and transcript confirmation UI
+- 6.5: route confirmed transcripts through the existing `POST /v1/requests` planning and policy flow
+- 6.6: host CLI voice command wrapper for terminal-first usage
+
+Phase 6 success criteria:
+
+- voice input never bypasses command planning, policy, or confirmation
+- transcript text is user-visible and editable before command planning
+- audio and transcript handling stays local by default
+- typed input keeps working exactly as it does after Phase 5
