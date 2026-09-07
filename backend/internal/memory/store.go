@@ -549,19 +549,17 @@ func (s *PostgresStore) SearchCommands(ctx context.Context, payload models.Memor
 	}
 
 	query := strings.TrimSpace(payload.Query)
-	results, err := s.keywordSearchCommands(ctx, payload, query, limit)
+	results, err := s.keywordSearchCommands(ctx, payload, query, searchCandidateLimit(limit))
 	if err != nil {
 		return models.MemorySearchResponse{}, err
-	}
-	if len(results) > 0 {
-		return models.MemorySearchResponse{Results: results}, nil
 	}
 
-	results, err = s.semanticSearchCommands(ctx, payload, query, limit)
+	semanticResults, err := s.semanticSearchCommands(ctx, payload, query, searchCandidateLimit(limit))
 	if err != nil {
 		return models.MemorySearchResponse{}, err
 	}
-	return models.MemorySearchResponse{Results: results}, nil
+
+	return models.MemorySearchResponse{Results: mergeRankedResults(results, semanticResults, payload, query, limit)}, nil
 }
 
 func (s *PostgresStore) keywordSearchCommands(ctx context.Context, payload models.MemorySearchRequest, query string, limit int) ([]models.MemorySearchResult, error) {
@@ -657,9 +655,10 @@ func (s *PostgresStore) semanticSearchCommands(ctx context.Context, payload mode
 		JOIN command_embeddings emb ON emb.command_event_id = ce.id
 		WHERE emb.embedding_model = $1
 		ORDER BY ce.started_at DESC
-		LIMIT 200
+		LIMIT $2
 		`,
 		s.embedder.Model(),
+		200,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("semantic search command events: %w", err)
@@ -732,6 +731,134 @@ func semanticMatchedReasons(result models.MemorySearchResult, payload models.Mem
 	}
 	if result.ExitCode == 0 {
 		reasons = append(reasons, "successful command")
+	}
+	return reasons
+}
+
+func mergeRankedResults(keywordResults []models.MemorySearchResult, semanticResults []models.MemorySearchResult, payload models.MemorySearchRequest, query string, limit int) []models.MemorySearchResult {
+	merged := map[string]models.MemorySearchResult{}
+	for _, result := range keywordResults {
+		result.Score = boundedScore(result.Score * 0.82)
+		merged[result.CommandEventID] = result
+	}
+	for _, semanticResult := range semanticResults {
+		semanticResult.Score = boundedScore(semanticResult.Score * 0.78)
+		existing, ok := merged[semanticResult.CommandEventID]
+		if !ok {
+			merged[semanticResult.CommandEventID] = semanticResult
+			continue
+		}
+
+		existing.Score = boundedScore(existing.Score + semanticResult.Score*0.45 + 0.08)
+		existing.MatchedReasons = mergeReasons(existing.MatchedReasons, semanticResult.MatchedReasons)
+		merged[semanticResult.CommandEventID] = existing
+	}
+
+	results := []models.MemorySearchResult{}
+	for _, result := range merged {
+		result.Score = boundedScore(result.Score + rankingBoost(result, payload, query))
+		results = append(results, result)
+	}
+	sort.SliceStable(results, func(i int, j int) bool {
+		if results[i].Score == results[j].Score {
+			return results[i].LastUsedAt > results[j].LastUsedAt
+		}
+		return results[i].Score > results[j].Score
+	})
+
+	if len(results) > limit {
+		return results[:limit]
+	}
+	return results
+}
+
+func searchCandidateLimit(limit int) int {
+	candidateLimit := limit * 5
+	if candidateLimit < 25 {
+		return 25
+	}
+	if candidateLimit > 100 {
+		return 100
+	}
+	return candidateLimit
+}
+
+func rankingBoost(result models.MemorySearchResult, payload models.MemorySearchRequest, query string) float64 {
+	var boost float64
+	if payload.CWD != "" && result.CWD == payload.CWD {
+		boost += 0.05
+	}
+	if result.ExitCode == 0 {
+		boost += 0.04
+	}
+	if isRecent(result.LastUsedAt, 24*time.Hour) {
+		boost += 0.03
+	}
+	if isRecent(result.LastUsedAt, 7*24*time.Hour) {
+		boost += 0.02
+	}
+	boost += domainIntentBoost(result, query)
+	return boost
+}
+
+func domainIntentBoost(result models.MemorySearchResult, query string) float64 {
+	normalizedQuery := strings.ToLower(query)
+	normalizedCommand := strings.ToLower(result.Command)
+	normalizedRequest := strings.ToLower(result.UserRequest)
+
+	if containsAny(normalizedQuery, []string{"where am i", "location", "working directory", "current directory", "cwd"}) {
+		if normalizedCommand == "pwd" || strings.Contains(normalizedRequest, "working directory") {
+			return 0.18
+		}
+	}
+	if strings.Contains(normalizedQuery, "port") && strings.Contains(normalizedCommand, "lsof") {
+		return 0.12
+	}
+	if containsAny(normalizedQuery, []string{"largest", "disk", "size"}) && containsAny(normalizedCommand, []string{"du ", "df "}) {
+		return 0.12
+	}
+	if containsAny(normalizedQuery, []string{"process", "running"}) && containsAny(normalizedCommand, []string{"ps ", "lsof"}) {
+		return 0.10
+	}
+	return 0
+}
+
+func containsAny(value string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRecent(value string, window time.Duration) bool {
+	usedAt, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return false
+	}
+	return time.Since(usedAt) <= window
+}
+
+func boundedScore(score float64) float64 {
+	if score < 0 {
+		return 0
+	}
+	if score > 1 {
+		return 1
+	}
+	return score
+}
+
+func mergeReasons(left []string, right []string) []string {
+	seen := map[string]bool{}
+	reasons := []string{}
+	for _, reason := range append(left, right...) {
+		if seen[reason] {
+			continue
+		}
+		seen[reason] = true
+		reasons = append(reasons, reason)
 	}
 	return reasons
 }

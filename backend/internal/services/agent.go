@@ -590,11 +590,9 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"Command-event embedding backfill",
 					"Semantic query embeddings",
 					"Semantic memory fallback",
-					"Hybrid scorer next",
+					"Hybrid keyword/semantic ranking",
 				},
-				MockAPIs: []string{
-					"Hybrid ranking in POST /v1/memory/search",
-				},
+				MockAPIs: []string{},
 			},
 			{
 				ID:          "phase_6",
@@ -658,11 +656,11 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 				ID:          "semantic_recall",
 				Phase:       "phase_5",
 				Status:      "in_progress",
-				Description: "New command events are embedded with Ollama, and memory search can fall back to semantic similarity when keyword search has no match.",
+				Description: "New command events are embedded with Ollama, and memory search blends keyword, semantic, project, success, and recency signals.",
 				Endpoints:   []string{"POST /v1/memory/search"},
 				NextSteps: []string{
-					"Blend semantic and structured ranking signals",
 					"Expose match reasons and scores in the frontend",
+					"Tune ranking weights with real command traces",
 				},
 			},
 			{
