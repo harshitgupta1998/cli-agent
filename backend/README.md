@@ -10,7 +10,7 @@ Implemented backend capabilities:
 - deterministic policy review and out-of-scope request gating
 - approved command execution with timeout and blocking
 - Postgres-backed sessions, projects, messages, command events, and learned project commands
-- Ollama-backed embeddings for new command events when `OLLAMA_EMBED_MODEL` is available
+- Ollama-backed command-event embeddings, backfill, semantic search, and hybrid memory ranking
 
 ## Run
 
@@ -34,6 +34,12 @@ Run against the local API:
 ```
 
 The CLI asks the Go API for planning and policy, then executes approved commands locally from your current working directory.
+
+Backfill missing command-event embeddings:
+
+```bash
+../bin/termind -backfill-embeddings -backfill-limit 50
+```
 
 ## Local LLM Planning
 
@@ -90,7 +96,9 @@ internal/services   agent service, policy, execution, roadmap metadata
 
 ## Semantic Recall
 
-Phase 5.1 adds embedding configuration and the Ollama embedding client. Phase 5.2 stores embeddings for new command events in `command_embeddings`. Recording still succeeds when embedding generation fails, so missing local models do not break command memory.
+Phase 5 stores embeddings for new command events in `command_embeddings`, can backfill older command events through `POST /v1/memory/embeddings/backfill`, and uses semantic recall in `POST /v1/memory/search`.
+
+Search ranking blends keyword match, semantic similarity, same-directory context, successful command history, and recency. Recording still succeeds when embedding generation fails, so missing local models do not break command memory.
 
 ## Phase Endpoints
 
@@ -99,7 +107,7 @@ GET /v1/phases
 GET /v1/mocks/capabilities
 ```
 
-These endpoints make the roadmap executable in the app. Phase 4 is the current working product surface; later phases are represented as explicit mocked capabilities.
+These endpoints make the roadmap executable in the app. Phase 5 is the current working product surface; later phases are represented as explicit planned capabilities.
 
 The next real implementation layers should be:
 
@@ -107,4 +115,4 @@ The next real implementation layers should be:
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
-- embedding backfill and hybrid semantic ranking
+- local voice input after the typed terminal flow stays stable

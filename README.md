@@ -11,10 +11,11 @@ This repository starts as a dockerized product template with:
 - Controlled backend command execution
 - Postgres command-event memory
 - Persistent sessions, projects, messages, and learned project commands
+- Local semantic recall with Ollama embeddings
 
 ## Current Status
 
-Termind is currently at **Phase 5: Semantic Recall**.
+Termind has completed **Phase 5: Semantic Recall**.
 
 Implemented:
 
@@ -24,11 +25,14 @@ Implemented:
 - Phase 4: persistent sessions, projects, messages, command events, and learned project commands
 - Phase 5.1: embedding model config and Ollama embedding client
 - Phase 5.2: embeddings for new command events
+- Phase 5.3: embedding backfill for existing command events
+- Phase 5.4: semantic memory search
+- Phase 5.5: hybrid keyword, semantic, project, success, and recency ranking
+- Phase 5.6: frontend semantic recall UX
 
 Next:
 
-- Phase 5.3: embedding backfill for existing command events
-- Phase 5.4: semantic search and hybrid ranking
+- Phase 6: local voice input
 
 ## Run Locally
 
@@ -66,6 +70,7 @@ POST /v1/requests
 POST /v1/commands/execute
 POST /v1/commands/record
 POST /v1/memory/search
+POST /v1/memory/embeddings/backfill
 POST /v1/commands/explain
 GET  /v1/context/project
 ```
@@ -97,6 +102,12 @@ Run one request:
 
 ```bash
 ../bin/termind -once "what is using port 8000?"
+```
+
+Backfill command embeddings:
+
+```bash
+../bin/termind -backfill-embeddings -backfill-limit 50
 ```
 
 Start the interactive CLI:
@@ -161,10 +172,10 @@ Phase 3 runs approved commands through the Go backend:
 The current flow is:
 
 ```text
-typed request -> command plan -> policy review -> approval -> safe execution -> remembered event
+typed request -> command plan -> policy review -> approval -> safe execution -> remembered event -> semantic recall
 ```
 
-Later phases are visible in the frontend so implementation can replace one mocked capability at a time.
+The frontend shows current phase status, runtime config, remembered command scores, semantic match reasons, and a backfill control.
 
 See [docs/phase_plan.md](docs/phase_plan.md).
 
@@ -218,6 +229,8 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 9. Sessions, projects, and user/assistant messages are persisted to Postgres.
 10. Successful commands are learned as project common commands.
 11. Project context detects git state and stack hints when available.
+12. New command events are embedded with Ollama.
+13. Memory search blends keyword, semantic, directory, success, and recency signals.
 12. New command events are embedded locally with Ollama when the embedding model is available.
 
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.

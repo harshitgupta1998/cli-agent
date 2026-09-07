@@ -90,6 +90,15 @@ type MemorySearchResult = {
   last_used_at: string;
 };
 
+type EmbeddingBackfillResponse = {
+  status: 'completed' | 'partial' | 'skipped';
+  scanned: number;
+  stored: number;
+  failed: number;
+  skipped: number;
+  embedding_model?: string;
+};
+
 type ProjectContext = {
   project_id: string;
   root_path: string;
@@ -157,6 +166,7 @@ function App() {
   const [plan, setPlan] = useState<UserRequestResponse | null>(null);
   const [execution, setExecution] = useState<CommandExecution | null>(null);
   const [memory, setMemory] = useState<MemorySearchResult[]>([]);
+  const [backfill, setBackfill] = useState<EmbeddingBackfillResponse | null>(null);
   const [project, setProject] = useState<ProjectContext | null>(null);
   const [phaseResponse, setPhaseResponse] = useState<PhaseResponse | null>(null);
   const [capabilities, setCapabilities] = useState<MockCapability[]>([]);
@@ -271,6 +281,20 @@ function App() {
       }),
     });
     setMemory(response.results);
+  }
+
+  async function backfillEmbeddings() {
+    setLoading(true);
+    try {
+      const response = await requestJson<EmbeddingBackfillResponse>('/v1/memory/embeddings/backfill', {
+        method: 'POST',
+        body: JSON.stringify({ limit: 50 }),
+      });
+      setBackfill(response);
+      await searchMemory(input);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -474,20 +498,36 @@ function App() {
             <div className="section-title">
               <Database size={18} />
               Remembered commands
+              <button className="small-action" onClick={backfillEmbeddings} disabled={loading}>
+                Backfill
+              </button>
               <button className="icon-button" onClick={() => searchMemory(input)} disabled={loading} title="Refresh memory">
                 <RefreshCw size={16} />
               </button>
             </div>
+            {backfill && (
+              <div className="memory-status">
+                {backfill.status}: scanned {backfill.scanned}, stored {backfill.stored}, failed {backfill.failed}
+              </div>
+            )}
             <div className="memory-list">
               {memory.map((item) => (
                 <article key={item.command_event_id} className="memory-item">
                   <div>
                     <code>{item.command}</code>
                     <p>{item.user_request}</p>
+                    <div className="reason-list">
+                      {item.matched_reasons.map((reason) => (
+                        <span key={reason}>{reason}</span>
+                      ))}
+                    </div>
                   </div>
                   <span>{Math.round(item.score * 100)}%</span>
                 </article>
               ))}
+              {memory.length === 0 && (
+                <div className="empty-state">No relevant command memory found.</div>
+              )}
             </div>
           </div>
 

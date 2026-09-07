@@ -33,11 +33,12 @@ def test_phase_five_is_current_and_later_phases_are_mocked(api):
     assert phases["phase_2"]["status"] == "ready"
     assert phases["phase_3"]["status"] == "ready"
     assert phases["phase_4"]["status"] == "ready"
-    assert phases["phase_5"]["status"] == "in_progress"
+    assert phases["phase_5"]["status"] == "ready"
     assert phases["phase_5"]["mock_apis"] == []
     assert "Command-event embedding backfill" in phases["phase_5"]["scope"]
     assert "Semantic query embeddings" in phases["phase_5"]["scope"]
     assert "Hybrid keyword/semantic ranking" in phases["phase_5"]["scope"]
+    assert "Frontend semantic match reasons" in phases["phase_5"]["scope"]
     assert phases["phase_6"]["status"] == "planned"
 
 

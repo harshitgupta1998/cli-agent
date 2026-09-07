@@ -1,6 +1,6 @@
 # Termind Phase Plan
 
-Current phase: **Phase 5 is in progress**. Phase 5.1 and 5.2 are implemented; Phase 5.3 backfill and Phase 5.4 semantic search are next.
+Current phase: **Phase 5 is complete**. Phase 6 voice input is planned next.
 
 ## Phase 1: Command Workbench
 
@@ -82,32 +82,31 @@ Implemented shape:
 - Successful executions update learned project commands.
 - Project context detects git state and common stack files when available.
 
-Next refinements:
+Future refinements:
 
 - richer project context from manifests and package scripts
 - memory pruning controls
-- preparation for semantic ranking
 
 ## Phase 5: Semantic Recall
 
 Add local embeddings and hybrid ranking.
 
-Phase 5.1 and 5.2 split:
+Implemented split:
 
 - 5.1: add embedding model config and Ollama embedding client - implemented
 - 5.2: embed new command events and store vectors in `command_embeddings` - implemented
-- 5.3: backfill existing command events
-- 5.4: add semantic search path
-- 5.5: add hybrid ranking
-- 5.6: use memory context in planning
-- 5.7: improve frontend memory UX
+- 5.3: backfill existing command events - implemented
+- 5.4: add semantic search path - implemented
+- 5.5: add hybrid ranking - implemented
+- 5.6: improve frontend semantic recall UX - implemented
 
-Planned shape:
+Implemented shape:
 
 - generate local embeddings with Ollama using `OLLAMA_EMBED_MODEL`
 - store vectors in `command_embeddings`
 - combine keyword match, semantic similarity, same project, same directory, recency, and success signals
 - expose provenance for why a command memory was retrieved
+- backfill missing embeddings through `POST /v1/memory/embeddings/backfill` or `termind -backfill-embeddings`
 
 ## Phase 6: Voice Input
 

@@ -1,6 +1,6 @@
 # Local Terminal Agent - System Design
 
-Current implementation status: Phase 5 is in progress. The active architecture is a React frontend, Go backend API, host CLI, local Ollama planner, Ollama embedding client, and Postgres memory store.
+Current implementation status: Phase 5 is complete. The active architecture is a React frontend, Go backend API, host CLI, local Ollama planner, Ollama embedding client, and Postgres memory store.
 
 ## 1. Purpose
 
@@ -960,7 +960,7 @@ cli-agent/
 
 - local embeddings through Ollama - started
 - embedding storage for new command events - started
-- embedding backfill
+- embedding backfill, semantic query retrieval, and hybrid memory ranking
 - hybrid ranking
 
 ### Milestone 7: Voice Input

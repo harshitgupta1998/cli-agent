@@ -493,6 +493,22 @@ pre {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.small-action {
+  min-height: 32px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 1px solid rgba(125, 211, 166, 0.3);
+  border-radius: 8px;
+  color: #d9f7e7;
+  background: rgba(125, 211, 166, 0.08);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.small-action + .icon-button {
+  margin-left: 0;
+}
+
 .icon-button:hover {
   border-color: rgba(125, 211, 166, 0.35);
   background: rgba(125, 211, 166, 0.1);
@@ -502,6 +518,22 @@ pre {
 .command-stack {
   display: grid;
   gap: 10px;
+}
+
+.memory-status,
+.empty-state {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 211, 166, 0.18);
+  border-radius: 8px;
+  color: #bdd0c5;
+  background: rgba(125, 211, 166, 0.06);
+  font-size: 13px;
+}
+
+.empty-state {
+  margin-bottom: 0;
+  text-align: center;
 }
 
 .memory-item {
@@ -521,6 +553,22 @@ pre {
 .memory-item span {
   color: #7dd3a6;
   font-weight: 800;
+}
+
+.reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.reason-list span {
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #c7d8ce;
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 12px;
 }
 
 .signal-grid {
