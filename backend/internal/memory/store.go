@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +34,11 @@ type Store interface {
 type PostgresStore struct {
 	db       *sql.DB
 	embedder embeddings.Embedder
+}
+
+type semanticCandidate struct {
+	result models.MemorySearchResult
+	score  float64
 }
 
 func NewPostgresStore(ctx context.Context, databaseURL string, embedder embeddings.Embedder) (*PostgresStore, error) {
@@ -542,6 +549,22 @@ func (s *PostgresStore) SearchCommands(ctx context.Context, payload models.Memor
 	}
 
 	query := strings.TrimSpace(payload.Query)
+	results, err := s.keywordSearchCommands(ctx, payload, query, limit)
+	if err != nil {
+		return models.MemorySearchResponse{}, err
+	}
+	if len(results) > 0 {
+		return models.MemorySearchResponse{Results: results}, nil
+	}
+
+	results, err = s.semanticSearchCommands(ctx, payload, query, limit)
+	if err != nil {
+		return models.MemorySearchResponse{}, err
+	}
+	return models.MemorySearchResponse{Results: results}, nil
+}
+
+func (s *PostgresStore) keywordSearchCommands(ctx context.Context, payload models.MemorySearchRequest, query string, limit int) ([]models.MemorySearchResult, error) {
 	likeQuery := "%" + query + "%"
 
 	rows, err := s.db.QueryContext(
@@ -576,7 +599,7 @@ func (s *PostgresStore) SearchCommands(ctx context.Context, payload models.Memor
 		limit,
 	)
 	if err != nil {
-		return models.MemorySearchResponse{}, fmt.Errorf("search command events: %w", err)
+		return nil, fmt.Errorf("search command events: %w", err)
 	}
 	defer rows.Close()
 
@@ -593,17 +616,102 @@ func (s *PostgresStore) SearchCommands(ctx context.Context, payload models.Memor
 			&startedAt,
 			&result.Score,
 		); err != nil {
-			return models.MemorySearchResponse{}, fmt.Errorf("scan command event: %w", err)
+			return nil, fmt.Errorf("scan command event: %w", err)
 		}
 		result.LastUsedAt = startedAt.UTC().Format(time.RFC3339)
 		result.MatchedReasons = matchedReasons(result, payload)
 		results = append(results, result)
 	}
 	if err := rows.Err(); err != nil {
-		return models.MemorySearchResponse{}, fmt.Errorf("iterate command events: %w", err)
+		return nil, fmt.Errorf("iterate command events: %w", err)
 	}
 
-	return models.MemorySearchResponse{Results: results}, nil
+	return results, nil
+}
+
+func (s *PostgresStore) semanticSearchCommands(ctx context.Context, payload models.MemorySearchRequest, query string, limit int) ([]models.MemorySearchResult, error) {
+	if s.embedder == nil {
+		return []models.MemorySearchResult{}, nil
+	}
+	if !isSemanticMemoryQuery(query) {
+		return []models.MemorySearchResult{}, nil
+	}
+
+	vector, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return []models.MemorySearchResult{}, nil
+	}
+
+	rows, err := s.db.QueryContext(
+		ctx,
+		`
+		SELECT
+			ce.id,
+			ce.final_command,
+			ce.user_request,
+			ce.cwd,
+			COALESCE(ce.exit_code, 0),
+			ce.started_at,
+			emb.embedding
+		FROM command_events ce
+		JOIN command_embeddings emb ON emb.command_event_id = ce.id
+		WHERE emb.embedding_model = $1
+		ORDER BY ce.started_at DESC
+		LIMIT 200
+		`,
+		s.embedder.Model(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("semantic search command events: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := []semanticCandidate{}
+	for rows.Next() {
+		var result models.MemorySearchResult
+		var startedAt time.Time
+		var encoded []byte
+		if err := rows.Scan(
+			&result.CommandEventID,
+			&result.Command,
+			&result.UserRequest,
+			&result.CWD,
+			&result.ExitCode,
+			&startedAt,
+			&encoded,
+		); err != nil {
+			return nil, fmt.Errorf("scan semantic command event: %w", err)
+		}
+
+		var candidateVector []float64
+		if err := json.Unmarshal(encoded, &candidateVector); err != nil {
+			continue
+		}
+		score := cosineSimilarity(vector, candidateVector)
+		if score < 0.15 {
+			continue
+		}
+
+		result.Score = score
+		result.LastUsedAt = startedAt.UTC().Format(time.RFC3339)
+		result.MatchedReasons = semanticMatchedReasons(result, payload)
+		candidates = append(candidates, semanticCandidate{result: result, score: score})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate semantic command events: %w", err)
+	}
+
+	sort.SliceStable(candidates, func(i int, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+	results := []models.MemorySearchResult{}
+	for index, candidate := range candidates {
+		if index >= limit {
+			break
+		}
+		results = append(results, candidate.result)
+	}
+	return results, nil
 }
 
 func matchedReasons(result models.MemorySearchResult, payload models.MemorySearchRequest) []string {
@@ -615,6 +723,59 @@ func matchedReasons(result models.MemorySearchResult, payload models.MemorySearc
 		reasons = append(reasons, "successful command")
 	}
 	return reasons
+}
+
+func semanticMatchedReasons(result models.MemorySearchResult, payload models.MemorySearchRequest) []string {
+	reasons := []string{"semantic match"}
+	if payload.CWD != "" && result.CWD == payload.CWD {
+		reasons = append(reasons, "same directory")
+	}
+	if result.ExitCode == 0 {
+		reasons = append(reasons, "successful command")
+	}
+	return reasons
+}
+
+func isSemanticMemoryQuery(query string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(query))
+	if normalized == "" {
+		return false
+	}
+
+	markers := []string{
+		"terminal", "shell", "command", "cli", "script", "process", "port", "server",
+		"file", "folder", "directory", "repo", "repository", "project", "path", "cwd",
+		"git", "docker", "compose", "npm", "node", "go ", "golang", "python", "pytest",
+		"test", "build", "run", "start", "stop", "kill", "list", "show", "find", "search",
+		"largest", "disk", "memory", "env", "logs", "error", "install", "make ",
+		"lsof", "pwd", "ls", "cd ", "du ", "df ", "ps ", "grep", "curl",
+	}
+	for _, marker := range markers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func cosineSimilarity(left []float64, right []float64) float64 {
+	if len(left) == 0 || len(right) == 0 || len(left) != len(right) {
+		return 0
+	}
+
+	var dot float64
+	var leftMagnitude float64
+	var rightMagnitude float64
+	for index := range left {
+		dot += left[index] * right[index]
+		leftMagnitude += left[index] * left[index]
+		rightMagnitude += right[index] * right[index]
+	}
+	if leftMagnitude == 0 || rightMagnitude == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(leftMagnitude) * math.Sqrt(rightMagnitude))
 }
 
 func normalizeConfirmation(value string) string {

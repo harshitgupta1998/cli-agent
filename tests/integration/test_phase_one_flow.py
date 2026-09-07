@@ -229,6 +229,55 @@ def test_cli_can_record_locally_executed_command_event(api):
     assert "same directory" in search["results"][0]["matched_reasons"]
 
 
+def test_memory_search_can_fall_back_to_semantic_recall(api):
+    session_status, session = api.post(
+        "/v1/sessions",
+        {
+            "cwd": DEFAULT_CWD,
+            "shell": "zsh",
+        },
+    )
+    assert session_status == 200
+
+    status, payload = api.post(
+        "/v1/commands/record",
+        {
+            "session_id": session["session_id"],
+            "request_id": "req_semantic_demo",
+            "user_request": "print working directory",
+            "proposed_command": "pwd",
+            "final_command": "pwd",
+            "cwd": DEFAULT_CWD,
+            "shell": "zsh",
+            "risk_level": "safe",
+            "confirmation": "approved",
+            "exit_code": 0,
+            "stdout": DEFAULT_CWD,
+            "stderr": "",
+            "duration_ms": 8,
+        },
+    )
+
+    assert status == 200
+    if payload["embedding_status"] != "stored":
+        return
+
+    search_status, search = api.post(
+        "/v1/memory/search",
+        {
+            "query": "find earlier shell action for location",
+            "project_id": session["project_id"],
+            "cwd": DEFAULT_CWD,
+            "limit": 5,
+        },
+    )
+
+    assert search_status == 200
+    assert search["results"]
+    assert any(result["command"] == "pwd" for result in search["results"])
+    assert any("semantic match" in result["matched_reasons"] for result in search["results"])
+
+
 def test_validation_errors_are_explicit(api):
     status, payload = api.post(
         "/v1/requests",
