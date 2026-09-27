@@ -13,6 +13,8 @@ import (
 
 var ErrUnavailable = errors.New("voice transcriber unavailable")
 
+var acceptedMimeTypes = []string{"audio/wav", "audio/mpeg", "audio/mp4", "audio/webm"}
+
 type Input struct {
 	AudioBase64 string
 	MimeType    string
@@ -55,7 +57,7 @@ func (t CommandTranscriber) Transcribe(ctx context.Context, input Input) (Result
 	if t.command == "" {
 		return Result{}, ErrUnavailable
 	}
-	audio, err := base64.StdEncoding.DecodeString(strings.TrimSpace(input.AudioBase64))
+	audio, err := DecodeAudio(input.AudioBase64)
 	if err != nil {
 		return Result{}, fmt.Errorf("decode audio: %w", err)
 	}
@@ -106,6 +108,24 @@ func extensionForMime(mimeType string) string {
 	default:
 		return ".wav"
 	}
+}
+
+func AcceptedMimeTypes() []string {
+	return append([]string{}, acceptedMimeTypes...)
+}
+
+func IsAcceptedMimeType(mimeType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(mimeType))
+	for _, accepted := range acceptedMimeTypes {
+		if normalized == accepted {
+			return true
+		}
+	}
+	return false
+}
+
+func DecodeAudio(value string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(strings.TrimSpace(value))
 }
 
 func shellQuote(value string) string {

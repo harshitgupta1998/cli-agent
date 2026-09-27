@@ -116,7 +116,7 @@ Planned checkpoints:
 
 - 6.1: voice capability metadata, runtime config, and placeholder contracts - implemented
 - 6.2: command-based local speech-to-text adapter - implemented
-- 6.3: transcript endpoint hardening for larger audio payloads and real local STT binaries
+- 6.3: transcript endpoint hardening for accepted MIME types, base64 validation, and audio size limits - implemented
 - 6.4: frontend microphone control and transcript confirmation UI
 - 6.5: route confirmed transcripts through the existing `POST /v1/requests` planning and policy flow
 - 6.6: host CLI voice command wrapper for terminal-first usage

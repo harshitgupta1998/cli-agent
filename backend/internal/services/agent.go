@@ -42,6 +42,7 @@ type AgentService struct {
 	voiceEnabled   bool
 	voiceProvider  string
 	voiceMaxSecs   int
+	voiceMaxBytes  int
 	transcriber    voice.Transcriber
 }
 
@@ -53,6 +54,7 @@ func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, c
 		voiceEnabled:   false,
 		voiceProvider:  "disabled",
 		voiceMaxSecs:   30,
+		voiceMaxBytes:  5 * 1024 * 1024,
 		transcriber:    voice.DisabledTranscriber{},
 	}
 }
@@ -72,6 +74,13 @@ func (m AgentService) WithVoiceConfig(enabled bool, provider string, maxSeconds 
 func (m AgentService) WithVoiceTranscriber(transcriber voice.Transcriber) AgentService {
 	if transcriber != nil {
 		m.transcriber = transcriber
+	}
+	return m
+}
+
+func (m AgentService) WithVoiceMaxBytes(maxBytes int) AgentService {
+	if maxBytes > 0 {
+		m.voiceMaxBytes = maxBytes
 	}
 	return m
 }
@@ -638,7 +647,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 				Scope: []string{
 					"6.1 voice capability metadata and config - implemented",
 					"6.2 command-based local speech-to-text adapter - implemented",
-					"6.3 transcript endpoint hardening",
+					"6.3 transcript endpoint hardening - implemented",
 					"6.4 frontend microphone and transcript confirmation",
 					"6.5 route confirmed transcript through planning and policy",
 					"6.6 CLI voice command wrapper",
@@ -708,7 +717,6 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 				Description: "Voice runtime config is available, and the transcript endpoint can call a configured local STT command.",
 				Endpoints:   []string{"GET /v1/voice/config", "POST /v1/voice/transcripts"},
 				NextSteps: []string{
-					"6.3 harden transcript API for larger audio payloads",
 					"6.4 add microphone UI with editable transcript confirmation",
 					"6.5 send confirmed transcripts through POST /v1/requests",
 					"6.6 add host CLI voice command wrapper",
@@ -727,13 +735,19 @@ func (m AgentService) VoiceConfig() models.VoiceConfigResponse {
 		Enabled:            m.voiceEnabled,
 		STTProvider:        m.voiceProvider,
 		MaxAudioSeconds:    m.voiceMaxSecs,
-		AcceptedMimeTypes:  []string{"audio/wav", "audio/mpeg", "audio/mp4", "audio/webm"},
+		MaxAudioBytes:      m.voiceMaxBytes,
+		AcceptedMimeTypes:  voice.AcceptedMimeTypes(),
 		TranscriptEndpoint: "/v1/voice/transcripts",
 		Status:             status,
 	}
 }
 
 func (m AgentService) CreateVoiceTranscript(payload models.VoiceTranscriptRequest) models.VoiceTranscriptResponse {
+	validation := m.validateVoiceTranscript(payload)
+	if validation.Status != "" {
+		return validation
+	}
+
 	if !m.voiceEnabled || m.transcriber == nil {
 		return models.VoiceTranscriptResponse{
 			Status:       "not_implemented",
@@ -784,6 +798,38 @@ func (m AgentService) CreateVoiceTranscript(payload models.VoiceTranscriptReques
 		RequiresEdit: true,
 		NextEndpoint: "/v1/requests",
 		Message:      "Transcript created locally. Review or edit it before planning a command.",
+	}
+}
+
+func (m AgentService) validateVoiceTranscript(payload models.VoiceTranscriptRequest) models.VoiceTranscriptResponse {
+	if strings.TrimSpace(payload.AudioBase64) == "" {
+		return m.voiceError("audio_required", "Audio payload is required.")
+	}
+	if !voice.IsAcceptedMimeType(payload.MimeType) {
+		return m.voiceError("unsupported_mime_type", "Audio MIME type is not supported.")
+	}
+	audio, err := voice.DecodeAudio(payload.AudioBase64)
+	if err != nil {
+		return m.voiceError("invalid_audio", "Audio payload must be valid base64.")
+	}
+	if len(audio) == 0 {
+		return m.voiceError("audio_required", "Audio payload is required.")
+	}
+	if m.voiceMaxBytes > 0 && len(audio) > m.voiceMaxBytes {
+		return m.voiceError("payload_too_large", "Audio payload exceeds the configured size limit.")
+	}
+	return models.VoiceTranscriptResponse{}
+}
+
+func (m AgentService) voiceError(status string, message string) models.VoiceTranscriptResponse {
+	return models.VoiceTranscriptResponse{
+		Status:       status,
+		Transcript:   "",
+		Confidence:   0,
+		STTProvider:  m.voiceProvider,
+		RequiresEdit: true,
+		NextEndpoint: "/v1/requests",
+		Message:      message,
 	}
 }
 

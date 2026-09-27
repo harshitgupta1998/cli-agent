@@ -59,6 +59,7 @@ type RuntimeConfig = {
   voice_stt_provider: string;
   voice_stt_command: boolean;
   voice_max_audio_seconds: number;
+  voice_max_audio_bytes: number;
 };
 
 type UserRequestResponse = {

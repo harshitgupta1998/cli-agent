@@ -56,6 +56,7 @@ COMMAND_TIMEOUT_SECONDS=30
 VOICE_INPUT_ENABLED=false
 VOICE_STT_PROVIDER=disabled
 VOICE_STT_COMMAND=
+VOICE_MAX_AUDIO_BYTES=5242880
 ```
 
 `internal/planner` contains the Ollama planner and deterministic fallback planner.
@@ -127,6 +128,8 @@ VOICE_STT_COMMAND='path/to/stt-command {audio}'
 ```
 
 The backend writes the submitted audio to a temporary local file and replaces `{audio}` with that file path. The command must print the transcript to stdout. This is designed to wrap tools such as `whisper.cpp` without making that binary a required dependency yet.
+
+The transcript endpoint validates MIME type, base64 audio, and `VOICE_MAX_AUDIO_BYTES` before invoking the local command.
 
 The next real implementation layers should be:
 

@@ -43,6 +43,7 @@ func main() {
 
 	agent := services.NewAgentService(store, commandPlanner, cfg.CommandTimeout)
 	agent = agent.WithVoiceConfig(cfg.VoiceEnabled == "true", cfg.VoiceSTTProvider, cfg.VoiceMaxSeconds)
+	agent = agent.WithVoiceMaxBytes(cfg.VoiceMaxBytes)
 	if cfg.VoiceSTTProvider == "command" {
 		agent = agent.WithVoiceTranscriber(voice.NewCommandTranscriber(cfg.VoiceSTTCommand))
 	}

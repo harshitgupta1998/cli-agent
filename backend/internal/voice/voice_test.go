@@ -36,3 +36,15 @@ func TestDisabledTranscriberReturnsUnavailable(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, ErrUnavailable)
 	}
 }
+
+func TestAcceptedMimeTypesAreDefensiveCopy(t *testing.T) {
+	types := AcceptedMimeTypes()
+	types[0] = "mutated"
+
+	if !IsAcceptedMimeType("audio/wav") {
+		t.Fatal("audio/wav should remain accepted")
+	}
+	if IsAcceptedMimeType("text/plain") {
+		t.Fatal("text/plain should not be accepted")
+	}
+}

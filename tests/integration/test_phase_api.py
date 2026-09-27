@@ -21,6 +21,7 @@ def test_config_reports_mock_go_backend(api):
     assert payload["voice_stt_provider"] == "disabled"
     assert payload["voice_stt_command"] is False
     assert payload["voice_max_audio_seconds"] > 0
+    assert payload["voice_max_audio_bytes"] > 0
 
 
 def test_phase_six_is_current_and_in_progress(api):
@@ -46,6 +47,7 @@ def test_phase_six_is_current_and_in_progress(api):
     assert phases["phase_6"]["status"] == "in_progress"
     assert "6.1 voice capability metadata and config - implemented" in phases["phase_6"]["scope"]
     assert "6.2 command-based local speech-to-text adapter - implemented" in phases["phase_6"]["scope"]
+    assert "6.3 transcript endpoint hardening - implemented" in phases["phase_6"]["scope"]
     assert "6.5 route confirmed transcript through planning and policy" in phases["phase_6"]["scope"]
     assert phases["phase_6"]["mock_apis"] == ["Frontend microphone capture"]
 
@@ -66,7 +68,7 @@ def test_capability_metadata_matches_completed_and_planned_phases(api):
     assert capabilities["voice_input"]["status"] == "in_progress"
     assert capabilities["voice_input"]["endpoints"] == ["GET /v1/voice/config", "POST /v1/voice/transcripts"]
     assert capabilities["voice_input"]["next_steps"]
-    assert capabilities["voice_input"]["next_steps"][0].startswith("6.3")
+    assert capabilities["voice_input"]["next_steps"][0].startswith("6.4")
 
 
 def test_embedding_backfill_endpoint(api):
@@ -97,6 +99,7 @@ def test_voice_config_contract_is_available(api):
     assert payload["enabled"] is False
     assert payload["stt_provider"] == "disabled"
     assert payload["max_audio_seconds"] > 0
+    assert payload["max_audio_bytes"] > 0
     assert "audio/wav" in payload["accepted_mime_types"]
     assert payload["transcript_endpoint"] == "/v1/voice/transcripts"
     assert payload["status"] == "planned"
@@ -106,7 +109,7 @@ def test_voice_transcript_placeholder_keeps_pipeline_contract(api):
     status, payload = api.post(
         "/v1/voice/transcripts",
         {
-            "audio_base64": "",
+            "audio_base64": "ZmFrZSBhdWRpbw==",
             "mime_type": "audio/wav",
             "language": "en",
         },
@@ -124,3 +127,42 @@ def test_voice_transcript_requires_mime_type(api):
 
     assert status == 400
     assert payload == {"error": "mime_type_required"}
+
+
+def test_voice_transcript_requires_audio_payload(api):
+    status, payload = api.post(
+        "/v1/voice/transcripts",
+        {
+            "audio_base64": "",
+            "mime_type": "audio/wav",
+        },
+    )
+
+    assert status == 400
+    assert payload["status"] == "audio_required"
+
+
+def test_voice_transcript_rejects_unsupported_mime_type(api):
+    status, payload = api.post(
+        "/v1/voice/transcripts",
+        {
+            "audio_base64": "ZmFrZSBhdWRpbw==",
+            "mime_type": "text/plain",
+        },
+    )
+
+    assert status == 400
+    assert payload["status"] == "unsupported_mime_type"
+
+
+def test_voice_transcript_rejects_invalid_base64(api):
+    status, payload = api.post(
+        "/v1/voice/transcripts",
+        {
+            "audio_base64": "not-base64",
+            "mime_type": "audio/wav",
+        },
+    )
+
+    assert status == 400
+    assert payload["status"] == "invalid_audio"

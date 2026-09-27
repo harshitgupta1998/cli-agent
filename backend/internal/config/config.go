@@ -20,6 +20,7 @@ type Config struct {
 	VoiceSTTProvider string
 	VoiceSTTCommand  string
 	VoiceMaxSeconds  int
+	VoiceMaxBytes    int
 }
 
 func Load() Config {
@@ -37,6 +38,7 @@ func Load() Config {
 		VoiceSTTProvider: env("VOICE_STT_PROVIDER", "disabled"),
 		VoiceSTTCommand:  env("VOICE_STT_COMMAND", ""),
 		VoiceMaxSeconds:  intEnv("VOICE_MAX_AUDIO_SECONDS", 30),
+		VoiceMaxBytes:    intEnv("VOICE_MAX_AUDIO_BYTES", 5242880),
 	}
 }
 

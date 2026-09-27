@@ -61,6 +61,7 @@ type VoiceConfigResponse struct {
 	Enabled            bool     `json:"enabled"`
 	STTProvider        string   `json:"stt_provider"`
 	MaxAudioSeconds    int      `json:"max_audio_seconds"`
+	MaxAudioBytes      int      `json:"max_audio_bytes"`
 	AcceptedMimeTypes  []string `json:"accepted_mime_types"`
 	TranscriptEndpoint string   `json:"transcript_endpoint"`
 	Status             string   `json:"status"`

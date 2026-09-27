@@ -48,3 +48,34 @@ func TestCreateVoiceTranscriptRejectsInvalidAudio(t *testing.T) {
 		t.Fatalf("Status = %q, want invalid_audio", response.Status)
 	}
 }
+
+func TestCreateVoiceTranscriptRejectsOversizedAudio(t *testing.T) {
+	agent := NewAgentService(nil, nil, time.Second).
+		WithVoiceConfig(true, "command", 5).
+		WithVoiceMaxBytes(2).
+		WithVoiceTranscriber(voice.NewCommandTranscriber("printf 'unused'"))
+
+	response := agent.CreateVoiceTranscript(models.VoiceTranscriptRequest{
+		AudioBase64: base64.StdEncoding.EncodeToString([]byte("fake audio")),
+		MimeType:    "audio/wav",
+	})
+
+	if response.Status != "payload_too_large" {
+		t.Fatalf("Status = %q, want payload_too_large", response.Status)
+	}
+}
+
+func TestCreateVoiceTranscriptRejectsUnsupportedMimeType(t *testing.T) {
+	agent := NewAgentService(nil, nil, time.Second).
+		WithVoiceConfig(true, "command", 5).
+		WithVoiceTranscriber(voice.NewCommandTranscriber("printf 'unused'"))
+
+	response := agent.CreateVoiceTranscript(models.VoiceTranscriptRequest{
+		AudioBase64: base64.StdEncoding.EncodeToString([]byte("fake audio")),
+		MimeType:    "text/plain",
+	})
+
+	if response.Status != "unsupported_mime_type" {
+		t.Fatalf("Status = %q, want unsupported_mime_type", response.Status)
+	}
+}

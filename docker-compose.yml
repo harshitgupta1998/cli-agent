@@ -31,6 +31,7 @@ services:
       VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-disabled}
       VOICE_STT_COMMAND: ${VOICE_STT_COMMAND:-}
       VOICE_MAX_AUDIO_SECONDS: ${VOICE_MAX_AUDIO_SECONDS:-30}
+      VOICE_MAX_AUDIO_BYTES: ${VOICE_MAX_AUDIO_BYTES:-5242880}
       CORS_ORIGIN: http://localhost:5173
     depends_on:
       database:

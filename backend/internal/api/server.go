@@ -65,6 +65,7 @@ func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"voice_stt_provider":      s.cfg.VoiceSTTProvider,
 		"voice_stt_command":       s.cfg.VoiceSTTCommand != "",
 		"voice_max_audio_seconds": s.cfg.VoiceMaxSeconds,
+		"voice_max_audio_bytes":   s.cfg.VoiceMaxBytes,
 	})
 }
 
@@ -215,7 +216,9 @@ func (s Server) createVoiceTranscript(w http.ResponseWriter, r *http.Request) {
 	switch response.Status {
 	case "completed":
 		writeJSON(w, http.StatusOK, response)
-	case "invalid_audio":
+	case "payload_too_large":
+		writeJSON(w, http.StatusRequestEntityTooLarge, response)
+	case "audio_required", "unsupported_mime_type", "invalid_audio":
 		writeJSON(w, http.StatusBadRequest, response)
 	default:
 		writeJSON(w, http.StatusNotImplemented, response)
