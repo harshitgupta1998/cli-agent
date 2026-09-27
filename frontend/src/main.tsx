@@ -1,16 +1,19 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  AlertCircle,
   Bot,
   CheckCircle2,
   Clock3,
   Cpu,
   Database,
   Layers3,
+  Mic,
   Play,
   RefreshCw,
   Search,
   ShieldCheck,
+  Square,
   Terminal,
   Zap,
 } from 'lucide-react';
@@ -147,6 +150,26 @@ type MockCapability = {
   next_steps: string[];
 };
 
+type VoiceConfig = {
+  enabled: boolean;
+  stt_provider: string;
+  max_audio_seconds: number;
+  max_audio_bytes: number;
+  accepted_mime_types: string[];
+  transcript_endpoint: string;
+  status: string;
+};
+
+type VoiceTranscriptResponse = {
+  status: string;
+  transcript: string;
+  confidence: number;
+  stt_provider: string;
+  requires_edit: boolean;
+  next_endpoint: string;
+  message: string;
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -163,11 +186,38 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const value = reader.result;
+      if (typeof value !== 'string') {
+        reject(new Error('Audio recording could not be read'));
+        return;
+      }
+      resolve(value.split(',')[1] || '');
+    };
+    reader.onerror = () => reject(new Error('Audio recording could not be read'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function bestRecordingMimeType(acceptedMimeTypes: string[]): string {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const preferred = ['audio/webm', 'audio/mp4', 'audio/wav', 'audio/mpeg'];
+  return preferred.find((mimeType) => acceptedMimeTypes.includes(mimeType) && MediaRecorder.isTypeSupported(mimeType)) || '';
+}
+
 function App() {
   const [sessionId, setSessionId] = useState('ses_demo');
   const [input, setInput] = useState('what is using port 8000?');
   const [cwd, setCwd] = useState(defaultCwd);
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const [voiceTranscript, setVoiceTranscript] = useState<VoiceTranscriptResponse | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [plan, setPlan] = useState<UserRequestResponse | null>(null);
   const [execution, setExecution] = useState<CommandExecution | null>(null);
   const [memory, setMemory] = useState<MemorySearchResult[]>([]);
@@ -188,6 +238,9 @@ function App() {
       setBootError(null);
       const runtime = await requestJson<RuntimeConfig>('/v1/config');
       setConfig(runtime);
+
+      const voice = await requestJson<VoiceConfig>('/v1/voice/config');
+      setVoiceConfig(voice);
 
       const session = await requestJson<{ session_id: string; project_id: string; started_at: string }>('/v1/sessions', {
         method: 'POST',
@@ -286,6 +339,95 @@ function App() {
       }),
     });
     setMemory(response.results);
+  }
+
+  async function startVoiceCapture() {
+    setVoiceError(null);
+    setVoiceTranscript(null);
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceError('This browser does not support microphone recording.');
+      return;
+    }
+
+    const acceptedMimeTypes = voiceConfig?.accepted_mime_types || ['audio/webm'];
+    const mimeType = bestRecordingMimeType(acceptedMimeTypes);
+    if (!mimeType) {
+      setVoiceError('No browser recording format matches the backend voice contract.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream, { mimeType });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setMediaRecorder(null);
+        void transcribeVoiceBlob(new Blob(chunks, { type: recorder.mimeType || mimeType }));
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setVoiceStatus('recording');
+
+      window.setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, (voiceConfig?.max_audio_seconds || 30) * 1000);
+    } catch (error) {
+      setVoiceStatus('idle');
+      setVoiceError(error instanceof Error ? error.message : 'Microphone permission was not granted.');
+    }
+  }
+
+  function stopVoiceCapture() {
+    if (mediaRecorder?.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  }
+
+  async function transcribeVoiceBlob(blob: Blob) {
+    setVoiceStatus('transcribing');
+    setVoiceError(null);
+
+    try {
+      if (voiceConfig?.max_audio_bytes && blob.size > voiceConfig.max_audio_bytes) {
+        setVoiceError(`Recording is larger than ${Math.round(voiceConfig.max_audio_bytes / 1024 / 1024)} MB.`);
+        return;
+      }
+
+      const audioBase64 = await blobToBase64(blob);
+      const mimeType = blob.type || bestRecordingMimeType(voiceConfig?.accepted_mime_types || []);
+      const response = await fetch(`${API_BASE_URL}${voiceConfig?.transcript_endpoint || '/v1/voice/transcripts'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audio_base64: audioBase64,
+          mime_type: mimeType,
+          language: 'en',
+        }),
+      });
+      const transcript = await response.json() as VoiceTranscriptResponse;
+      setVoiceTranscript(transcript);
+      if (transcript.transcript) {
+        setInput(transcript.transcript);
+      }
+      if (!response.ok && transcript.message) {
+        setVoiceError(transcript.message);
+      }
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : 'Voice transcription failed.');
+    } finally {
+      setVoiceStatus('idle');
+    }
   }
 
   async function backfillEmbeddings() {
@@ -431,6 +573,41 @@ function App() {
               Plan
             </button>
           </form>
+
+          <div className="voice-panel">
+            <div className="voice-actions">
+              <button
+                className={voiceStatus === 'recording' ? 'voice-button recording' : 'voice-button'}
+                onClick={voiceStatus === 'recording' ? stopVoiceCapture : startVoiceCapture}
+                disabled={voiceStatus === 'transcribing'}
+                type="button"
+              >
+                {voiceStatus === 'recording' ? <Square size={18} /> : <Mic size={18} />}
+                {voiceStatus === 'recording' ? 'Stop recording' : voiceStatus === 'transcribing' ? 'Transcribing' : 'Record voice'}
+              </button>
+              <span>
+                {voiceConfig?.stt_provider || 'disabled'} · {voiceConfig?.max_audio_seconds || 30}s · {voiceConfig?.accepted_mime_types.join(', ') || 'loading'}
+              </span>
+            </div>
+
+            {(voiceTranscript || voiceError) && (
+              <div className={voiceTranscript?.status === 'completed' ? 'voice-result good' : 'voice-result warn'}>
+                <div>
+                  {voiceTranscript?.status === 'completed' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                  <strong>{voiceTranscript?.status || 'recording_error'}</strong>
+                  {voiceTranscript?.confidence ? <span>{Math.round(voiceTranscript.confidence * 100)}% confidence</span> : null}
+                </div>
+                <p>{voiceTranscript?.message || voiceError}</p>
+                {voiceTranscript?.transcript && (
+                  <textarea
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    aria-label="Editable voice transcript"
+                  />
+                )}
+              </div>
+            )}
+          </div>
 
           {plan && (
             <div className="plan-grid">

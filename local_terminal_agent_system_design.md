@@ -968,7 +968,7 @@ cli-agent/
 - voice capability metadata and runtime config - started
 - command-based local speech-to-text adapter - started
 - transcript creation endpoint with MIME/base64/size validation
-- microphone input with editable transcript confirmation
+- microphone input with editable transcript confirmation - implemented
 - same request pipeline as typed input
 - CLI voice command wrapper
 

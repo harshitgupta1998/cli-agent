@@ -130,6 +130,7 @@ VOICE_STT_COMMAND='path/to/stt-command {audio}'
 The backend writes the submitted audio to a temporary local file and replaces `{audio}` with that file path. The command must print the transcript to stdout. This is designed to wrap tools such as `whisper.cpp` without making that binary a required dependency yet.
 
 The transcript endpoint validates MIME type, base64 audio, and `VOICE_MAX_AUDIO_BYTES` before invoking the local command.
+The frontend can now capture microphone audio, submit it for transcription, and expose the transcript as editable prompt text before planning.
 
 The next real implementation layers should be:
 
@@ -137,4 +138,4 @@ The next real implementation layers should be:
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
-- frontend microphone capture and transcript confirmation
+- confirmed voice-to-planner flow polish

@@ -16,7 +16,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -260,7 +261,8 @@ button {
 }
 
 .prompt-row button,
-.primary-action {
+.primary-action,
+.voice-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -277,6 +279,86 @@ button {
   padding: 0 16px;
 }
 
+.voice-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+}
+
+.voice-actions span {
+  color: #a9bbb0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.voice-button {
+  min-width: 150px;
+  padding: 0 14px;
+  border: 1px solid rgba(125, 211, 166, 0.3);
+}
+
+.voice-button.recording {
+  border-color: rgba(248, 113, 113, 0.58);
+  color: #fff7f7;
+  background: rgba(185, 28, 28, 0.78);
+}
+
+.voice-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.voice-result.good {
+  border: 1px solid rgba(125, 211, 166, 0.32);
+  background: rgba(125, 211, 166, 0.08);
+}
+
+.voice-result.warn {
+  border: 1px solid rgba(245, 198, 95, 0.32);
+  background: rgba(245, 198, 95, 0.08);
+}
+
+.voice-result > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.voice-result span,
+.voice-result p {
+  color: #bdd0c5;
+}
+
+.voice-result p {
+  margin: 0;
+}
+
+.voice-result textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  outline: 0;
+  padding: 10px 12px;
+  color: #f5fbf7;
+  background: #070a09;
+}
+
 .primary-action {
   width: fit-content;
   padding: 0 18px;
@@ -284,6 +366,7 @@ button {
 
 .primary-action:disabled,
 .prompt-row button:disabled,
+.voice-button:disabled,
 .icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;

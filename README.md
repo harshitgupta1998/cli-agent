@@ -32,10 +32,11 @@ Implemented:
 - Phase 6.1: voice runtime config and placeholder transcript contracts
 - Phase 6.2: command-based local speech-to-text adapter
 - Phase 6.3: transcript endpoint hardening for MIME type, base64, and size limits
+- Phase 6.4: frontend microphone and transcript confirmation UI
 
 Next:
 
-- Phase 6.4: frontend microphone and transcript confirmation UI
+- Phase 6.5: route confirmed transcripts through planning and policy
 
 ## Run Locally
 

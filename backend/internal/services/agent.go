@@ -648,13 +648,11 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"6.1 voice capability metadata and config - implemented",
 					"6.2 command-based local speech-to-text adapter - implemented",
 					"6.3 transcript endpoint hardening - implemented",
-					"6.4 frontend microphone and transcript confirmation",
+					"6.4 frontend microphone and transcript confirmation - implemented",
 					"6.5 route confirmed transcript through planning and policy",
 					"6.6 CLI voice command wrapper",
 				},
-				MockAPIs: []string{
-					"Frontend microphone capture",
-				},
+				MockAPIs: []string{},
 			},
 		},
 	}
@@ -714,10 +712,9 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 				ID:          "voice_input",
 				Phase:       "phase_6",
 				Status:      "in_progress",
-				Description: "Voice runtime config is available, and the transcript endpoint can call a configured local STT command.",
+				Description: "Voice runtime config, browser microphone capture, editable transcript confirmation, and the transcript endpoint are available.",
 				Endpoints:   []string{"GET /v1/voice/config", "POST /v1/voice/transcripts"},
 				NextSteps: []string{
-					"6.4 add microphone UI with editable transcript confirmation",
 					"6.5 send confirmed transcripts through POST /v1/requests",
 					"6.6 add host CLI voice command wrapper",
 				},
