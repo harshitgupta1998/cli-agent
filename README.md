@@ -34,10 +34,11 @@ Implemented:
 - Phase 6.3: transcript endpoint hardening for MIME type, base64, and size limits
 - Phase 6.4: frontend microphone and transcript confirmation UI
 - Phase 6.5: route confirmed transcripts through planning and policy
+- Phase 6.6: host CLI voice command wrapper
 
 Next:
 
-- Phase 6.6: host CLI voice command wrapper
+- Production STT setup, executor streaming/cancellation, and richer project context detection
 
 ## Run Locally
 
@@ -109,6 +110,12 @@ Run one request:
 
 ```bash
 ../bin/termind -once "what is using port 8000?"
+```
+
+Transcribe a local audio file, confirm the transcript, and route it through the same planner/policy flow:
+
+```bash
+../bin/termind -voice-audio ./request.wav
 ```
 
 Backfill command embeddings:

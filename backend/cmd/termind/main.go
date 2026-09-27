@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,6 +35,8 @@ type localResult struct {
 func main() {
 	apiURL := flag.String("api", env("TERMIND_API_BASE_URL", "http://localhost:8000"), "Termind API base URL")
 	once := flag.String("once", "", "Run one request and exit")
+	voiceAudio := flag.String("voice-audio", "", "Transcribe a local audio file, confirm the transcript, plan it, and exit")
+	voiceLanguage := flag.String("voice-language", "en", "Language hint for -voice-audio transcription")
 	backfillEmbeddings := flag.Bool("backfill-embeddings", false, "Backfill missing command-event embeddings and exit")
 	backfillLimit := flag.Int("backfill-limit", 50, "Maximum command events to backfill")
 	yes := flag.Bool("yes", false, "Auto-approve safe commands only")
@@ -70,6 +74,17 @@ func main() {
 
 	if strings.TrimSpace(*once) != "" {
 		if err := handleRequest(client, session.SessionID, cwd, *once, *yes, *timeout); err != nil {
+			exitWithError(err)
+		}
+		return
+	}
+
+	if strings.TrimSpace(*voiceAudio) != "" {
+		transcript, err := handleVoiceAudio(client, strings.TrimSpace(*voiceAudio), strings.TrimSpace(*voiceLanguage))
+		if err != nil {
+			exitWithError(err)
+		}
+		if err := handleRequest(client, session.SessionID, cwd, transcript, *yes, *timeout); err != nil {
 			exitWithError(err)
 		}
 		return
@@ -168,6 +183,77 @@ func handleRequest(client APIClient, sessionID string, cwd string, input string,
 	return err
 }
 
+func handleVoiceAudio(client APIClient, audioPath string, language string) (string, error) {
+	payload, err := voiceTranscriptPayload(audioPath, language)
+	if err != nil {
+		return "", err
+	}
+
+	transcript, statusCode, err := client.createVoiceTranscript(payload)
+	if err != nil {
+		return "", err
+	}
+	if transcript.Message != "" {
+		fmt.Printf("Voice transcription: %s\n", transcript.Message)
+	}
+	if statusCode < 200 || statusCode >= 300 || transcript.Status != "completed" {
+		return "", fmt.Errorf("voice transcription failed: %s", transcript.Status)
+	}
+
+	text := strings.TrimSpace(transcript.Transcript)
+	if text == "" {
+		return "", errors.New("voice transcription returned an empty transcript")
+	}
+
+	fmt.Println()
+	fmt.Println("Transcript:")
+	fmt.Printf("  %s\n", text)
+	approved, err := askTranscriptApproval()
+	if err != nil {
+		return "", err
+	}
+	if !approved {
+		return "", errors.New("voice transcript was rejected")
+	}
+	return text, nil
+}
+
+func voiceTranscriptPayload(audioPath string, language string) (models.VoiceTranscriptRequest, error) {
+	audio, err := os.ReadFile(audioPath)
+	if err != nil {
+		return models.VoiceTranscriptRequest{}, err
+	}
+	if len(audio) == 0 {
+		return models.VoiceTranscriptRequest{}, errors.New("audio file is empty")
+	}
+
+	mimeType, err := audioMimeType(audioPath)
+	if err != nil {
+		return models.VoiceTranscriptRequest{}, err
+	}
+
+	return models.VoiceTranscriptRequest{
+		AudioBase64: base64.StdEncoding.EncodeToString(audio),
+		MimeType:    mimeType,
+		Language:    language,
+	}, nil
+}
+
+func audioMimeType(audioPath string) (string, error) {
+	switch strings.ToLower(filepath.Ext(audioPath)) {
+	case ".wav":
+		return "audio/wav", nil
+	case ".mp3", ".mpeg":
+		return "audio/mpeg", nil
+	case ".mp4", ".m4a":
+		return "audio/mp4", nil
+	case ".webm":
+		return "audio/webm", nil
+	default:
+		return "", fmt.Errorf("unsupported audio file extension %q; use wav, mp3, mp4, m4a, or webm", filepath.Ext(audioPath))
+	}
+}
+
 func printPlan(plan models.UserRequestResponse) {
 	fmt.Println()
 	fmt.Println("Proposed command:")
@@ -234,6 +320,17 @@ func askApproval() (bool, error) {
 	}
 	answer = strings.ToLower(strings.TrimSpace(answer))
 	return answer == "y" || answer == "yes", nil
+}
+
+func askTranscriptApproval() (bool, error) {
+	fmt.Print("Use transcript as request? [Y/n] ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "" || answer == "y" || answer == "yes", nil
 }
 
 func runLocalCommand(cwd string, command string, timeout time.Duration) (localResult, error) {
@@ -343,6 +440,12 @@ func (c APIClient) backfillCommandEmbeddings(payload models.EmbeddingBackfillReq
 	return response, err
 }
 
+func (c APIClient) createVoiceTranscript(payload models.VoiceTranscriptRequest) (models.VoiceTranscriptResponse, int, error) {
+	var response models.VoiceTranscriptResponse
+	statusCode, err := c.postWithStatus("/v1/voice/transcripts", payload, &response)
+	return response, statusCode, err
+}
+
 func (c APIClient) get(path string, target any) error {
 	request, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
@@ -352,33 +455,61 @@ func (c APIClient) get(path string, target any) error {
 }
 
 func (c APIClient) post(path string, payload any, target any) error {
-	body, err := json.Marshal(payload)
+	statusCode, err := c.postWithStatus(path, payload, target)
 	if err != nil {
 		return err
+	}
+	if statusCode < 200 || statusCode >= 300 {
+		return fmt.Errorf("api returned %d", statusCode)
+	}
+	return nil
+}
+
+func (c APIClient) postWithStatus(path string, payload any, target any) (int, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return 0, err
 	}
 	request, err := http.NewRequest(http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	return c.do(request, target)
+	statusCode, err := c.doWithStatus(request, target)
+	return statusCode, err
 }
 
 func (c APIClient) do(request *http.Request, target any) error {
-	response, err := c.http.Do(request)
+	statusCode, err := c.doWithStatus(request, target)
 	if err != nil {
 		return err
+	}
+	if statusCode < 200 || statusCode >= 300 {
+		return fmt.Errorf("api returned %d", statusCode)
+	}
+	return nil
+}
+
+func (c APIClient) doWithStatus(request *http.Request, target any) (int, error) {
+	response, err := c.http.Do(request)
+	if err != nil {
+		return 0, err
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return err
+		return response.StatusCode, err
+	}
+	if target != nil && len(body) > 0 {
+		if err := json.Unmarshal(body, target); err != nil {
+			return response.StatusCode, err
+		}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("api returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return response.StatusCode, nil
 	}
-	return json.Unmarshal(body, target)
+	return response.StatusCode, nil
 }
 
 func summarize(value string) string {

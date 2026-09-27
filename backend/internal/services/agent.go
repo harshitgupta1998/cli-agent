@@ -641,7 +641,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_6",
 				Name:        "Voice Input",
-				Status:      models.PhaseInProgress,
+				Status:      models.PhaseReady,
 				Summary:     "Add local speech-to-text as an input adapter while preserving the typed planning and policy pipeline.",
 				Deliverable: "Voice runtime config, transcript contracts, microphone confirmation UI, and confirmed transcript routing.",
 				Scope: []string{
@@ -650,7 +650,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"6.3 transcript endpoint hardening - implemented",
 					"6.4 frontend microphone and transcript confirmation - implemented",
 					"6.5 route confirmed transcript through planning and policy - implemented",
-					"6.6 CLI voice command wrapper",
+					"6.6 CLI voice command wrapper - implemented",
 				},
 				MockAPIs: []string{},
 			},
@@ -711,11 +711,12 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 			{
 				ID:          "voice_input",
 				Phase:       "phase_6",
-				Status:      "in_progress",
-				Description: "Voice runtime config, browser microphone capture, editable transcript confirmation, and confirmed transcript planning are available.",
+				Status:      "ready",
+				Description: "Voice runtime config, browser microphone capture, editable transcript confirmation, confirmed transcript planning, and CLI audio-file transcription are available.",
 				Endpoints:   []string{"GET /v1/voice/config", "POST /v1/voice/transcripts"},
 				NextSteps: []string{
-					"6.6 add host CLI voice command wrapper",
+					"Configure a production local STT command such as whisper.cpp",
+					"Add live microphone capture to the host CLI after selecting a cross-platform recorder",
 				},
 			},
 		},

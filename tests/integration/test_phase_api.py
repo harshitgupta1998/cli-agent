@@ -44,12 +44,13 @@ def test_phase_six_is_current_and_in_progress(api):
     assert "Semantic query embeddings" in phases["phase_5"]["scope"]
     assert "Hybrid keyword/semantic ranking" in phases["phase_5"]["scope"]
     assert "Frontend semantic match reasons" in phases["phase_5"]["scope"]
-    assert phases["phase_6"]["status"] == "in_progress"
+    assert phases["phase_6"]["status"] == "ready"
     assert "6.1 voice capability metadata and config - implemented" in phases["phase_6"]["scope"]
     assert "6.2 command-based local speech-to-text adapter - implemented" in phases["phase_6"]["scope"]
     assert "6.3 transcript endpoint hardening - implemented" in phases["phase_6"]["scope"]
     assert "6.4 frontend microphone and transcript confirmation - implemented" in phases["phase_6"]["scope"]
     assert "6.5 route confirmed transcript through planning and policy - implemented" in phases["phase_6"]["scope"]
+    assert "6.6 CLI voice command wrapper - implemented" in phases["phase_6"]["scope"]
     assert phases["phase_6"]["mock_apis"] == []
 
 
@@ -66,10 +67,10 @@ def test_capability_metadata_matches_completed_and_planned_phases(api):
     assert capabilities["semantic_recall"]["status"] == "ready"
     assert capabilities["semantic_recall"]["endpoints"] == ["POST /v1/memory/search"]
     assert capabilities["voice_input"]["phase"] == "phase_6"
-    assert capabilities["voice_input"]["status"] == "in_progress"
+    assert capabilities["voice_input"]["status"] == "ready"
     assert capabilities["voice_input"]["endpoints"] == ["GET /v1/voice/config", "POST /v1/voice/transcripts"]
     assert capabilities["voice_input"]["next_steps"]
-    assert capabilities["voice_input"]["next_steps"][0].startswith("6.6")
+    assert capabilities["voice_input"]["next_steps"][0].startswith("Configure")
 
 
 def test_embedding_backfill_endpoint(api):

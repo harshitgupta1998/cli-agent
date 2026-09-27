@@ -970,7 +970,7 @@ cli-agent/
 - transcript creation endpoint with MIME/base64/size validation
 - microphone input with editable transcript confirmation - implemented
 - same request pipeline as typed input - implemented
-- CLI voice command wrapper
+- CLI voice command wrapper - implemented
 
 ## 13. Open Design Decisions
 
