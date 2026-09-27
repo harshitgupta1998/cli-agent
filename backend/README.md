@@ -2,7 +2,7 @@
 
 Go API service for the Termind product template.
 
-Current backend status: **Phase 6.1: Voice Input contracts**.
+Current backend status: **Phase 6.5: Confirmed Voice Planning**.
 
 Implemented backend capabilities:
 
@@ -13,6 +13,7 @@ Implemented backend capabilities:
 - Ollama-backed command-event embeddings, backfill, semantic search, and hybrid memory ranking
 - voice runtime config and placeholder transcript contracts
 - command-based local speech-to-text adapter for `VOICE_STT_PROVIDER=command`
+- confirmed voice transcripts route through the same planning and policy path as typed prompts
 
 ## Run
 
@@ -130,7 +131,7 @@ VOICE_STT_COMMAND='path/to/stt-command {audio}'
 The backend writes the submitted audio to a temporary local file and replaces `{audio}` with that file path. The command must print the transcript to stdout. This is designed to wrap tools such as `whisper.cpp` without making that binary a required dependency yet.
 
 The transcript endpoint validates MIME type, base64 audio, and `VOICE_MAX_AUDIO_BYTES` before invoking the local command.
-The frontend can now capture microphone audio, submit it for transcription, and expose the transcript as editable prompt text before planning.
+The frontend can now capture microphone audio, submit it for transcription, expose the transcript as editable prompt text, and send the confirmed transcript through the existing request planner.
 
 The next real implementation layers should be:
 
@@ -138,4 +139,4 @@ The next real implementation layers should be:
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
-- confirmed voice-to-planner flow polish
+- host CLI voice command wrapper

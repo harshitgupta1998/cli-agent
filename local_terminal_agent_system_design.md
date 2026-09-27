@@ -969,7 +969,7 @@ cli-agent/
 - command-based local speech-to-text adapter - started
 - transcript creation endpoint with MIME/base64/size validation
 - microphone input with editable transcript confirmation - implemented
-- same request pipeline as typed input
+- same request pipeline as typed input - implemented
 - CLI voice command wrapper
 
 ## 13. Open Design Decisions

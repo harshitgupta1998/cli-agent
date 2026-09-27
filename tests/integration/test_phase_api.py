@@ -49,7 +49,7 @@ def test_phase_six_is_current_and_in_progress(api):
     assert "6.2 command-based local speech-to-text adapter - implemented" in phases["phase_6"]["scope"]
     assert "6.3 transcript endpoint hardening - implemented" in phases["phase_6"]["scope"]
     assert "6.4 frontend microphone and transcript confirmation - implemented" in phases["phase_6"]["scope"]
-    assert "6.5 route confirmed transcript through planning and policy" in phases["phase_6"]["scope"]
+    assert "6.5 route confirmed transcript through planning and policy - implemented" in phases["phase_6"]["scope"]
     assert phases["phase_6"]["mock_apis"] == []
 
 
@@ -69,7 +69,7 @@ def test_capability_metadata_matches_completed_and_planned_phases(api):
     assert capabilities["voice_input"]["status"] == "in_progress"
     assert capabilities["voice_input"]["endpoints"] == ["GET /v1/voice/config", "POST /v1/voice/transcripts"]
     assert capabilities["voice_input"]["next_steps"]
-    assert capabilities["voice_input"]["next_steps"][0].startswith("6.5")
+    assert capabilities["voice_input"]["next_steps"][0].startswith("6.6")
 
 
 def test_embedding_backfill_endpoint(api):

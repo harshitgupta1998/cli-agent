@@ -12,6 +12,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Send,
   ShieldCheck,
   Square,
   Terminal,
@@ -218,6 +219,7 @@ function App() {
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'recording' | 'transcribing'>('idle');
   const [voiceTranscript, setVoiceTranscript] = useState<VoiceTranscriptResponse | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [requestSource, setRequestSource] = useState<'typed' | 'voice'>('typed');
   const [plan, setPlan] = useState<UserRequestResponse | null>(null);
   const [execution, setExecution] = useState<CommandExecution | null>(null);
   const [memory, setMemory] = useState<MemorySearchResult[]>([]);
@@ -275,29 +277,36 @@ function App() {
     return capabilities.filter((capability) => capability.status === 'planned');
   }, [capabilities]);
 
-  async function submitRequest(event?: FormEvent<HTMLFormElement>) {
+  async function submitRequest(event?: FormEvent<HTMLFormElement>, source: 'typed' | 'voice' = 'typed') {
     event?.preventDefault();
     setLoading(true);
     setExecution(null);
 
     try {
+      const prompt = input.trim();
       const response = await requestJson<UserRequestResponse>('/v1/requests', {
         method: 'POST',
         body: JSON.stringify({
           session_id: sessionId,
-          input,
+          input: prompt,
           cwd,
         }),
       });
+      setInput(prompt);
       setPlan(response);
+      setRequestSource(source);
       const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(cwd)}`);
       setProject(context);
       if (response.intent === 'search_history') {
-        await searchMemory(input);
+        await searchMemory(prompt);
       }
     } finally {
       setLoading(false);
     }
+  }
+
+  async function submitVoiceTranscript() {
+    await submitRequest(undefined, 'voice');
   }
 
   async function runCommand() {
@@ -419,6 +428,8 @@ function App() {
       setVoiceTranscript(transcript);
       if (transcript.transcript) {
         setInput(transcript.transcript);
+        setPlan(null);
+        setExecution(null);
       }
       if (!response.ok && transcript.message) {
         setVoiceError(transcript.message);
@@ -558,7 +569,10 @@ function App() {
             <div className="prompt-fields">
               <input
                 value={input}
-                onChange={(event) => setInput(event.target.value)}
+                onChange={(event) => {
+                  setInput(event.target.value);
+                  setRequestSource('typed');
+                }}
                 placeholder="Ask for a command or search terminal memory"
               />
               <input
@@ -599,11 +613,22 @@ function App() {
                 </div>
                 <p>{voiceTranscript?.message || voiceError}</p>
                 {voiceTranscript?.transcript && (
-                  <textarea
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    aria-label="Editable voice transcript"
-                  />
+                  <>
+                    <textarea
+                      value={input}
+                      onChange={(event) => setInput(event.target.value)}
+                      aria-label="Editable voice transcript"
+                    />
+                    <button
+                      className="voice-confirm-button"
+                      onClick={submitVoiceTranscript}
+                      disabled={loading || !input.trim()}
+                      type="button"
+                    >
+                      <Send size={18} />
+                      Plan transcript
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -616,6 +641,7 @@ function App() {
                 <pre>{plan.plan.command || (plan.intent === 'unknown' ? 'No command planned' : 'Memory search request')}</pre>
                 <p>{plan.plan.reason}</p>
                 <div className="plan-meta">
+                  <span>Source: {requestSource}</span>
                   <span>Intent: {plan.intent}</span>
                   <span>CWD: {plan.plan.cwd}</span>
                 </div>
