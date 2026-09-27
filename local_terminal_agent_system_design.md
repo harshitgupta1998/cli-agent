@@ -1,6 +1,6 @@
 # Local Terminal Agent - System Design
 
-Current implementation status: Phase 5 is complete. The active architecture is a React frontend, Go backend API, host CLI, local Ollama planner, Ollama embedding client, and Postgres memory store.
+Current implementation status: Phase 6.1 is in progress. The active architecture is a React frontend, Go backend API, host CLI, local Ollama planner, Ollama embedding client, voice contract endpoints, and Postgres memory store.
 
 ## 1. Purpose
 
@@ -965,7 +965,7 @@ cli-agent/
 
 ### Milestone 7: Voice Input
 
-- voice capability metadata and runtime config
+- voice capability metadata and runtime config - started
 - local speech-to-text adapter spike
 - transcript creation endpoint
 - microphone input with editable transcript confirmation

@@ -41,6 +41,7 @@ func main() {
 	}
 
 	agent := services.NewAgentService(store, commandPlanner, cfg.CommandTimeout)
+	agent = agent.WithVoiceConfig(cfg.VoiceEnabled == "true", cfg.VoiceSTTProvider, cfg.VoiceMaxSeconds)
 	server := api.NewServer(cfg, agent)
 
 	log.Printf("Termind API listening on %s", cfg.HTTPAddr)

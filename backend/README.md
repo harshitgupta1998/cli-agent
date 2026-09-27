@@ -2,7 +2,7 @@
 
 Go API service for the Termind product template.
 
-Current backend status: **Phase 5: Semantic Recall**.
+Current backend status: **Phase 6.1: Voice Input contracts**.
 
 Implemented backend capabilities:
 
@@ -11,6 +11,7 @@ Implemented backend capabilities:
 - approved command execution with timeout and blocking
 - Postgres-backed sessions, projects, messages, command events, and learned project commands
 - Ollama-backed command-event embeddings, backfill, semantic search, and hybrid memory ranking
+- voice runtime config and placeholder transcript contracts
 
 ## Run
 
@@ -105,9 +106,11 @@ Search ranking blends keyword match, semantic similarity, same-directory context
 ```text
 GET /v1/phases
 GET /v1/mocks/capabilities
+GET /v1/voice/config
+POST /v1/voice/transcripts
 ```
 
-These endpoints make the roadmap executable in the app. Phase 5 is the current working product surface; later phases are represented as explicit planned capabilities.
+These endpoints make the roadmap executable in the app. Phase 6.1 is the current working product surface; local speech-to-text is the next implementation layer.
 
 The next real implementation layers should be:
 
@@ -115,4 +118,4 @@ The next real implementation layers should be:
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
-- local voice input after the typed terminal flow stays stable
+- local speech-to-text adapter for `POST /v1/voice/transcripts`

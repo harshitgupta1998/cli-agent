@@ -16,6 +16,9 @@ type Config struct {
 	CommandTimeout   time.Duration
 	LocalOnlyMode    string
 	CORSOrigin       string
+	VoiceEnabled     string
+	VoiceSTTProvider string
+	VoiceMaxSeconds  int
 }
 
 func Load() Config {
@@ -29,7 +32,22 @@ func Load() Config {
 		CommandTimeout:   secondsEnv("COMMAND_TIMEOUT_SECONDS", 30),
 		LocalOnlyMode:    env("LOCAL_ONLY_MODE", "true"),
 		CORSOrigin:       env("CORS_ORIGIN", "http://localhost:5173"),
+		VoiceEnabled:     env("VOICE_INPUT_ENABLED", "false"),
+		VoiceSTTProvider: env("VOICE_STT_PROVIDER", "disabled"),
+		VoiceMaxSeconds:  intEnv("VOICE_MAX_AUDIO_SECONDS", 30),
 	}
+}
+
+func intEnv(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func secondsEnv(key string, fallback int) time.Duration {

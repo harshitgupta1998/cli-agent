@@ -15,7 +15,7 @@ This repository starts as a dockerized product template with:
 
 ## Current Status
 
-Termind has completed **Phase 5: Semantic Recall**.
+Termind has completed **Phase 5: Semantic Recall** and has started **Phase 6: Voice Input**.
 
 Implemented:
 
@@ -29,10 +29,11 @@ Implemented:
 - Phase 5.4: semantic memory search
 - Phase 5.5: hybrid keyword, semantic, project, success, and recency ranking
 - Phase 5.6: frontend semantic recall UX
+- Phase 6.1: voice runtime config and placeholder transcript contracts
 
 Next:
 
-- Phase 6: local voice input, split into metadata/config, local STT adapter, transcript API, confirmation UI, request-pipeline integration, and CLI wrapper
+- Phase 6.2: local speech-to-text adapter spike
 
 ## Run Locally
 
@@ -71,6 +72,8 @@ POST /v1/commands/execute
 POST /v1/commands/record
 POST /v1/memory/search
 POST /v1/memory/embeddings/backfill
+GET  /v1/voice/config
+POST /v1/voice/transcripts
 POST /v1/commands/explain
 GET  /v1/context/project
 ```

@@ -55,6 +55,9 @@ type RuntimeConfig = {
   database: string;
   backend_runtime: string;
   mode: string;
+  voice_input_enabled: boolean;
+  voice_stt_provider: string;
+  voice_max_audio_seconds: number;
 };
 
 type UserRequestResponse = {
@@ -337,6 +340,10 @@ function App() {
             <span>Database</span>
             <strong>{config?.database || 'Postgres'}</strong>
           </div>
+          <div className="status-line">
+            <span>Voice</span>
+            <strong>{config?.voice_input_enabled ? config.voice_stt_provider : 'planned'}</strong>
+          </div>
         </section>
       </aside>
 
@@ -348,7 +355,7 @@ function App() {
           </div>
           <div className="topbar-actions">
             <div className="pill"><Cpu size={16} /> {config?.mode || 'checking runtime'}</div>
-            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_5'}</div>
+            <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_6'}</div>
             <div className="pill"><Clock3 size={16} /> Session {sessionId}</div>
           </div>
         </header>
@@ -363,15 +370,15 @@ function App() {
         <section className="phase-banner">
           <div>
             <div className="section-label">Current build target</div>
-            <h2>{currentPhase?.name || 'Semantic Recall'}</h2>
-            <p>{currentPhase?.summary || 'Local command-event embeddings are stored as the foundation for semantic memory search.'}</p>
+            <h2>{currentPhase?.name || 'Voice Input'}</h2>
+            <p>{currentPhase?.summary || 'Voice runtime config and transcript contracts are being added before local speech-to-text.'}</p>
           </div>
           <div className="phase-checks">
             {(currentPhase?.scope || [
-              'Embedding model config',
-              'Ollama embedding client',
-              'New command-event embeddings',
-              'Semantic search next',
+              '6.1 voice capability metadata and config',
+              '6.2 local speech-to-text adapter spike',
+              '6.3 transcript endpoint',
+              '6.4 frontend microphone and transcript confirmation',
             ]).slice(0, 4).map((item) => (
               <span key={item}><CheckCircle2 size={15} /> {item}</span>
             ))}
@@ -395,6 +402,10 @@ function App() {
             <article>
               <span>Execution path</span>
               <strong>Backend shell, {config?.command_timeout_seconds || 30}s timeout</strong>
+            </article>
+            <article>
+              <span>Voice input</span>
+              <strong>{config?.voice_input_enabled ? `${config.voice_stt_provider}, ${config.voice_max_audio_seconds}s` : 'Phase 6 contract ready'}</strong>
             </article>
           </div>
 

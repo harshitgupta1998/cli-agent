@@ -57,6 +57,31 @@ type MockCapabilityResponse struct {
 	Capabilities []MockCapability `json:"capabilities"`
 }
 
+type VoiceConfigResponse struct {
+	Enabled            bool     `json:"enabled"`
+	STTProvider        string   `json:"stt_provider"`
+	MaxAudioSeconds    int      `json:"max_audio_seconds"`
+	AcceptedMimeTypes  []string `json:"accepted_mime_types"`
+	TranscriptEndpoint string   `json:"transcript_endpoint"`
+	Status             string   `json:"status"`
+}
+
+type VoiceTranscriptRequest struct {
+	AudioBase64 string `json:"audio_base64"`
+	MimeType    string `json:"mime_type"`
+	Language    string `json:"language,omitempty"`
+}
+
+type VoiceTranscriptResponse struct {
+	Status       string  `json:"status"`
+	Transcript   string  `json:"transcript"`
+	Confidence   float64 `json:"confidence"`
+	STTProvider  string  `json:"stt_provider"`
+	RequiresEdit bool    `json:"requires_edit"`
+	NextEndpoint string  `json:"next_endpoint"`
+	Message      string  `json:"message"`
+}
+
 type Message struct {
 	ID        string `json:"id"`
 	SessionID string `json:"session_id"`

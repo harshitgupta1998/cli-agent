@@ -27,6 +27,9 @@ services:
       PLANNER_MODE: ${PLANNER_MODE:-ollama}
       COMMAND_TIMEOUT_SECONDS: ${COMMAND_TIMEOUT_SECONDS:-30}
       LOCAL_ONLY_MODE: ${LOCAL_ONLY_MODE:-true}
+      VOICE_INPUT_ENABLED: ${VOICE_INPUT_ENABLED:-false}
+      VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-disabled}
+      VOICE_MAX_AUDIO_SECONDS: ${VOICE_MAX_AUDIO_SECONDS:-30}
       CORS_ORIGIN: http://localhost:5173
     depends_on:
       database:

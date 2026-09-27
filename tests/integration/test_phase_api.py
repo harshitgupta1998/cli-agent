@@ -11,19 +11,22 @@ def test_config_reports_mock_go_backend(api):
     assert status == 200
     assert payload["product"] == "Termind"
     assert payload["backend_runtime"] == "go"
-    assert payload["mode"] == "phase_5_semantic_recall"
+    assert payload["mode"] == "phase_6_voice_input"
     assert payload["planner_mode"] in {"ollama", "rules"}
     assert payload["ollama_model"]
     assert payload["ollama_embed_model"]
     assert payload["command_timeout_seconds"] > 0
     assert payload["local_only_mode"] is True
+    assert payload["voice_input_enabled"] is False
+    assert payload["voice_stt_provider"] == "disabled"
+    assert payload["voice_max_audio_seconds"] > 0
 
 
-def test_phase_five_is_current_and_ready(api):
+def test_phase_six_is_current_and_in_progress(api):
     status, payload = api.get("/v1/phases")
 
     assert status == 200
-    assert payload["current_phase"] == "phase_5"
+    assert payload["current_phase"] == "phase_6"
 
     phases = {phase["id"]: phase for phase in payload["phases"]}
     assert phases["phase_1"]["status"] == "ready"
@@ -39,10 +42,10 @@ def test_phase_five_is_current_and_ready(api):
     assert "Semantic query embeddings" in phases["phase_5"]["scope"]
     assert "Hybrid keyword/semantic ranking" in phases["phase_5"]["scope"]
     assert "Frontend semantic match reasons" in phases["phase_5"]["scope"]
-    assert phases["phase_6"]["status"] == "planned"
-    assert "6.1 voice capability metadata and config" in phases["phase_6"]["scope"]
+    assert phases["phase_6"]["status"] == "in_progress"
+    assert "6.1 voice capability metadata and config - implemented" in phases["phase_6"]["scope"]
     assert "6.5 route confirmed transcript through planning and policy" in phases["phase_6"]["scope"]
-    assert phases["phase_6"]["mock_apis"] == ["GET /v1/mocks/capabilities"]
+    assert phases["phase_6"]["mock_apis"] == ["POST /v1/voice/transcripts"]
 
 
 def test_capability_metadata_matches_completed_and_planned_phases(api):
@@ -58,9 +61,10 @@ def test_capability_metadata_matches_completed_and_planned_phases(api):
     assert capabilities["semantic_recall"]["status"] == "ready"
     assert capabilities["semantic_recall"]["endpoints"] == ["POST /v1/memory/search"]
     assert capabilities["voice_input"]["phase"] == "phase_6"
-    assert capabilities["voice_input"]["status"] == "planned"
+    assert capabilities["voice_input"]["status"] == "in_progress"
+    assert capabilities["voice_input"]["endpoints"] == ["GET /v1/voice/config", "POST /v1/voice/transcripts"]
     assert capabilities["voice_input"]["next_steps"]
-    assert capabilities["voice_input"]["next_steps"][0].startswith("6.1")
+    assert capabilities["voice_input"]["next_steps"][0].startswith("6.2")
 
 
 def test_embedding_backfill_endpoint(api):
@@ -82,3 +86,39 @@ def test_embedding_backfill_accepts_default_limit(api):
     assert status == 200
     assert payload["status"] in {"completed", "partial", "skipped"}
     assert set(payload).issuperset({"scanned", "stored", "failed", "skipped"})
+
+
+def test_voice_config_contract_is_available(api):
+    status, payload = api.get("/v1/voice/config")
+
+    assert status == 200
+    assert payload["enabled"] is False
+    assert payload["stt_provider"] == "disabled"
+    assert payload["max_audio_seconds"] > 0
+    assert "audio/wav" in payload["accepted_mime_types"]
+    assert payload["transcript_endpoint"] == "/v1/voice/transcripts"
+    assert payload["status"] == "planned"
+
+
+def test_voice_transcript_placeholder_keeps_pipeline_contract(api):
+    status, payload = api.post(
+        "/v1/voice/transcripts",
+        {
+            "audio_base64": "",
+            "mime_type": "audio/wav",
+            "language": "en",
+        },
+    )
+
+    assert status == 501
+    assert payload["status"] == "not_implemented"
+    assert payload["transcript"] == ""
+    assert payload["requires_edit"] is True
+    assert payload["next_endpoint"] == "/v1/requests"
+
+
+def test_voice_transcript_requires_mime_type(api):
+    status, payload = api.post("/v1/voice/transcripts", {"audio_base64": ""})
+
+    assert status == 400
+    assert payload == {"error": "mime_type_required"}

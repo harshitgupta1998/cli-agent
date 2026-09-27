@@ -1,6 +1,6 @@
 # Termind Phase Plan
 
-Current phase: **Phase 5 is complete**. Phase 6 voice input is planned next.
+Current phase: **Phase 6.1 is in progress**. Phase 5 semantic recall is complete.
 
 ## Phase 1: Command Workbench
 
@@ -112,9 +112,9 @@ Implemented shape:
 
 Add local speech-to-text as an input adapter.
 
-Not implemented yet. Planned checkpoints:
+Planned checkpoints:
 
-- 6.1: voice capability metadata, runtime config, and placeholder contracts
+- 6.1: voice capability metadata, runtime config, and placeholder contracts - implemented
 - 6.2: local speech-to-text adapter spike, likely Whisper.cpp or an Ollama-compatible local STT option if available
 - 6.3: transcript endpoint that accepts an audio file and returns editable text plus confidence/source metadata
 - 6.4: frontend microphone control and transcript confirmation UI

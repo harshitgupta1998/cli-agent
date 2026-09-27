@@ -30,16 +30,40 @@ type Agent interface {
 	ProjectContext(cwd string) models.ProjectContext
 	Phases() models.PhaseResponse
 	MockCapabilities() models.MockCapabilityResponse
+	VoiceConfig() models.VoiceConfigResponse
+	CreateVoiceTranscript(payload models.VoiceTranscriptRequest) models.VoiceTranscriptResponse
 }
 
 type AgentService struct {
 	memory         memory.Store
 	planner        planner.Planner
 	commandTimeout time.Duration
+	voiceEnabled   bool
+	voiceProvider  string
+	voiceMaxSecs   int
 }
 
 func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, commandTimeout time.Duration) AgentService {
-	return AgentService{memory: memoryStore, planner: commandPlanner, commandTimeout: commandTimeout}
+	return AgentService{
+		memory:         memoryStore,
+		planner:        commandPlanner,
+		commandTimeout: commandTimeout,
+		voiceEnabled:   false,
+		voiceProvider:  "disabled",
+		voiceMaxSecs:   30,
+	}
+}
+
+func (m AgentService) WithVoiceConfig(enabled bool, provider string, maxSeconds int) AgentService {
+	m.voiceEnabled = enabled
+	m.voiceProvider = strings.TrimSpace(provider)
+	if m.voiceProvider == "" {
+		m.voiceProvider = "disabled"
+	}
+	if maxSeconds > 0 {
+		m.voiceMaxSecs = maxSeconds
+	}
+	return m
 }
 
 func (m AgentService) CreateSession(payload models.SessionCreateRequest) models.SessionCreateResponse {
@@ -512,7 +536,7 @@ func fileExists(cwd string, name string) bool {
 
 func (m AgentService) Phases() models.PhaseResponse {
 	return models.PhaseResponse{
-		CurrentPhase: "phase_5",
+		CurrentPhase: "phase_6",
 		Phases: []models.Phase{
 			{
 				ID:          "phase_1",
@@ -598,11 +622,11 @@ func (m AgentService) Phases() models.PhaseResponse {
 			{
 				ID:          "phase_6",
 				Name:        "Voice Input",
-				Status:      models.PhasePlanned,
-				Summary:     "Add local speech-to-text as an input adapter after the typed command pipeline is stable.",
-				Deliverable: "Microphone input feeding the same request pipeline as typed text.",
+				Status:      models.PhaseInProgress,
+				Summary:     "Add local speech-to-text as an input adapter while preserving the typed planning and policy pipeline.",
+				Deliverable: "Voice runtime config, transcript contracts, microphone confirmation UI, and confirmed transcript routing.",
 				Scope: []string{
-					"6.1 voice capability metadata and config",
+					"6.1 voice capability metadata and config - implemented",
 					"6.2 local speech-to-text adapter spike",
 					"6.3 transcript endpoint",
 					"6.4 frontend microphone and transcript confirmation",
@@ -610,7 +634,7 @@ func (m AgentService) Phases() models.PhaseResponse {
 					"6.6 CLI voice command wrapper",
 				},
 				MockAPIs: []string{
-					"GET /v1/mocks/capabilities",
+					"POST /v1/voice/transcripts",
 				},
 			},
 		},
@@ -670,11 +694,10 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 			{
 				ID:          "voice_input",
 				Phase:       "phase_6",
-				Status:      "planned",
-				Description: "Voice is intentionally deferred until the typed planning and execution loop is stable.",
-				Endpoints:   []string{"GET /v1/mocks/capabilities"},
+				Status:      "in_progress",
+				Description: "Voice runtime config and transcript contracts are available; local STT implementation is next.",
+				Endpoints:   []string{"GET /v1/voice/config", "POST /v1/voice/transcripts"},
 				NextSteps: []string{
-					"6.1 expose voice runtime config and placeholder contracts",
 					"6.2 choose and wrap a local STT runtime",
 					"6.3 add transcript creation API",
 					"6.4 add microphone UI with editable transcript confirmation",
@@ -683,6 +706,33 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 				},
 			},
 		},
+	}
+}
+
+func (m AgentService) VoiceConfig() models.VoiceConfigResponse {
+	status := "planned"
+	if m.voiceEnabled {
+		status = "configured"
+	}
+	return models.VoiceConfigResponse{
+		Enabled:            m.voiceEnabled,
+		STTProvider:        m.voiceProvider,
+		MaxAudioSeconds:    m.voiceMaxSecs,
+		AcceptedMimeTypes:  []string{"audio/wav", "audio/mpeg", "audio/mp4", "audio/webm"},
+		TranscriptEndpoint: "/v1/voice/transcripts",
+		Status:             status,
+	}
+}
+
+func (m AgentService) CreateVoiceTranscript(payload models.VoiceTranscriptRequest) models.VoiceTranscriptResponse {
+	return models.VoiceTranscriptResponse{
+		Status:       "not_implemented",
+		Transcript:   "",
+		Confidence:   0,
+		STTProvider:  m.voiceProvider,
+		RequiresEdit: true,
+		NextEndpoint: "/v1/requests",
+		Message:      "Phase 6.1 exposes the voice contract. Local speech-to-text starts in Phase 6.2.",
 	}
 }
 

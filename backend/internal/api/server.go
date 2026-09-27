@@ -36,6 +36,8 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/context/project", s.getProjectContext)
 	mux.HandleFunc("GET /v1/phases", s.getPhases)
 	mux.HandleFunc("GET /v1/mocks/capabilities", s.getMockCapabilities)
+	mux.HandleFunc("GET /v1/voice/config", s.getVoiceConfig)
+	mux.HandleFunc("POST /v1/voice/transcripts", s.createVoiceTranscript)
 
 	return s.withCORS(mux)
 }
@@ -58,7 +60,10 @@ func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"command_timeout_seconds": int(s.cfg.CommandTimeout.Seconds()),
 		"database":                "postgres",
 		"backend_runtime":         "go",
-		"mode":                    "phase_5_semantic_recall",
+		"mode":                    "phase_6_voice_input",
+		"voice_input_enabled":     s.cfg.VoiceEnabled == "true",
+		"voice_stt_provider":      s.cfg.VoiceSTTProvider,
+		"voice_max_audio_seconds": s.cfg.VoiceMaxSeconds,
 	})
 }
 
@@ -189,6 +194,23 @@ func (s Server) getPhases(w http.ResponseWriter, r *http.Request) {
 
 func (s Server) getMockCapabilities(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.agent.MockCapabilities())
+}
+
+func (s Server) getVoiceConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.agent.VoiceConfig())
+}
+
+func (s Server) createVoiceTranscript(w http.ResponseWriter, r *http.Request) {
+	var payload models.VoiceTranscriptRequest
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if strings.TrimSpace(payload.MimeType) == "" {
+		writeError(w, http.StatusBadRequest, "mime_type_required")
+		return
+	}
+
+	writeJSON(w, http.StatusNotImplemented, s.agent.CreateVoiceTranscript(payload))
 }
 
 func (s Server) withCORS(next http.Handler) http.Handler {
