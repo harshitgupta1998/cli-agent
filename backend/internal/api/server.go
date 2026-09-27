@@ -63,6 +63,7 @@ func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"mode":                    "phase_6_voice_input",
 		"voice_input_enabled":     s.cfg.VoiceEnabled == "true",
 		"voice_stt_provider":      s.cfg.VoiceSTTProvider,
+		"voice_stt_command":       s.cfg.VoiceSTTCommand != "",
 		"voice_max_audio_seconds": s.cfg.VoiceMaxSeconds,
 	})
 }
@@ -210,7 +211,15 @@ func (s Server) createVoiceTranscript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusNotImplemented, s.agent.CreateVoiceTranscript(payload))
+	response := s.agent.CreateVoiceTranscript(payload)
+	switch response.Status {
+	case "completed":
+		writeJSON(w, http.StatusOK, response)
+	case "invalid_audio":
+		writeJSON(w, http.StatusBadRequest, response)
+	default:
+		writeJSON(w, http.StatusNotImplemented, response)
+	}
 }
 
 func (s Server) withCORS(next http.Handler) http.Handler {

@@ -19,6 +19,7 @@ def test_config_reports_mock_go_backend(api):
     assert payload["local_only_mode"] is True
     assert payload["voice_input_enabled"] is False
     assert payload["voice_stt_provider"] == "disabled"
+    assert payload["voice_stt_command"] is False
     assert payload["voice_max_audio_seconds"] > 0
 
 
@@ -44,8 +45,9 @@ def test_phase_six_is_current_and_in_progress(api):
     assert "Frontend semantic match reasons" in phases["phase_5"]["scope"]
     assert phases["phase_6"]["status"] == "in_progress"
     assert "6.1 voice capability metadata and config - implemented" in phases["phase_6"]["scope"]
+    assert "6.2 command-based local speech-to-text adapter - implemented" in phases["phase_6"]["scope"]
     assert "6.5 route confirmed transcript through planning and policy" in phases["phase_6"]["scope"]
-    assert phases["phase_6"]["mock_apis"] == ["POST /v1/voice/transcripts"]
+    assert phases["phase_6"]["mock_apis"] == ["Frontend microphone capture"]
 
 
 def test_capability_metadata_matches_completed_and_planned_phases(api):
@@ -64,7 +66,7 @@ def test_capability_metadata_matches_completed_and_planned_phases(api):
     assert capabilities["voice_input"]["status"] == "in_progress"
     assert capabilities["voice_input"]["endpoints"] == ["GET /v1/voice/config", "POST /v1/voice/transcripts"]
     assert capabilities["voice_input"]["next_steps"]
-    assert capabilities["voice_input"]["next_steps"][0].startswith("6.2")
+    assert capabilities["voice_input"]["next_steps"][0].startswith("6.3")
 
 
 def test_embedding_backfill_endpoint(api):

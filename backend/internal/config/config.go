@@ -18,6 +18,7 @@ type Config struct {
 	CORSOrigin       string
 	VoiceEnabled     string
 	VoiceSTTProvider string
+	VoiceSTTCommand  string
 	VoiceMaxSeconds  int
 }
 
@@ -34,6 +35,7 @@ func Load() Config {
 		CORSOrigin:       env("CORS_ORIGIN", "http://localhost:5173"),
 		VoiceEnabled:     env("VOICE_INPUT_ENABLED", "false"),
 		VoiceSTTProvider: env("VOICE_STT_PROVIDER", "disabled"),
+		VoiceSTTCommand:  env("VOICE_STT_COMMAND", ""),
 		VoiceMaxSeconds:  intEnv("VOICE_MAX_AUDIO_SECONDS", 30),
 	}
 }

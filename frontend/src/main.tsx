@@ -57,6 +57,7 @@ type RuntimeConfig = {
   mode: string;
   voice_input_enabled: boolean;
   voice_stt_provider: string;
+  voice_stt_command: boolean;
   voice_max_audio_seconds: number;
 };
 
@@ -405,7 +406,7 @@ function App() {
             </article>
             <article>
               <span>Voice input</span>
-              <strong>{config?.voice_input_enabled ? `${config.voice_stt_provider}, ${config.voice_max_audio_seconds}s` : 'Phase 6 contract ready'}</strong>
+              <strong>{config?.voice_input_enabled ? `${config.voice_stt_provider}, ${config.voice_max_audio_seconds}s` : 'STT disabled'}</strong>
             </article>
           </div>
 

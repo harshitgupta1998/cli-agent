@@ -30,10 +30,11 @@ Implemented:
 - Phase 5.5: hybrid keyword, semantic, project, success, and recency ranking
 - Phase 5.6: frontend semantic recall UX
 - Phase 6.1: voice runtime config and placeholder transcript contracts
+- Phase 6.2: command-based local speech-to-text adapter
 
 Next:
 
-- Phase 6.2: local speech-to-text adapter spike
+- Phase 6.3: transcript endpoint hardening for larger audio payloads and real local STT binaries
 
 ## Run Locally
 

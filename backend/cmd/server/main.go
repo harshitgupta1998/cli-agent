@@ -12,6 +12,7 @@ import (
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/planner"
 	"github.com/harsgupta/termind/backend/internal/services"
+	"github.com/harsgupta/termind/backend/internal/voice"
 )
 
 func main() {
@@ -42,6 +43,9 @@ func main() {
 
 	agent := services.NewAgentService(store, commandPlanner, cfg.CommandTimeout)
 	agent = agent.WithVoiceConfig(cfg.VoiceEnabled == "true", cfg.VoiceSTTProvider, cfg.VoiceMaxSeconds)
+	if cfg.VoiceSTTProvider == "command" {
+		agent = agent.WithVoiceTranscriber(voice.NewCommandTranscriber(cfg.VoiceSTTCommand))
+	}
 	server := api.NewServer(cfg, agent)
 
 	log.Printf("Termind API listening on %s", cfg.HTTPAddr)

@@ -16,6 +16,7 @@ import (
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
 	"github.com/harsgupta/termind/backend/internal/planner"
+	"github.com/harsgupta/termind/backend/internal/voice"
 )
 
 type Agent interface {
@@ -41,6 +42,7 @@ type AgentService struct {
 	voiceEnabled   bool
 	voiceProvider  string
 	voiceMaxSecs   int
+	transcriber    voice.Transcriber
 }
 
 func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, commandTimeout time.Duration) AgentService {
@@ -51,6 +53,7 @@ func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, c
 		voiceEnabled:   false,
 		voiceProvider:  "disabled",
 		voiceMaxSecs:   30,
+		transcriber:    voice.DisabledTranscriber{},
 	}
 }
 
@@ -62,6 +65,13 @@ func (m AgentService) WithVoiceConfig(enabled bool, provider string, maxSeconds 
 	}
 	if maxSeconds > 0 {
 		m.voiceMaxSecs = maxSeconds
+	}
+	return m
+}
+
+func (m AgentService) WithVoiceTranscriber(transcriber voice.Transcriber) AgentService {
+	if transcriber != nil {
+		m.transcriber = transcriber
 	}
 	return m
 }
@@ -627,14 +637,14 @@ func (m AgentService) Phases() models.PhaseResponse {
 				Deliverable: "Voice runtime config, transcript contracts, microphone confirmation UI, and confirmed transcript routing.",
 				Scope: []string{
 					"6.1 voice capability metadata and config - implemented",
-					"6.2 local speech-to-text adapter spike",
-					"6.3 transcript endpoint",
+					"6.2 command-based local speech-to-text adapter - implemented",
+					"6.3 transcript endpoint hardening",
 					"6.4 frontend microphone and transcript confirmation",
 					"6.5 route confirmed transcript through planning and policy",
 					"6.6 CLI voice command wrapper",
 				},
 				MockAPIs: []string{
-					"POST /v1/voice/transcripts",
+					"Frontend microphone capture",
 				},
 			},
 		},
@@ -695,11 +705,10 @@ func (m AgentService) MockCapabilities() models.MockCapabilityResponse {
 				ID:          "voice_input",
 				Phase:       "phase_6",
 				Status:      "in_progress",
-				Description: "Voice runtime config and transcript contracts are available; local STT implementation is next.",
+				Description: "Voice runtime config is available, and the transcript endpoint can call a configured local STT command.",
 				Endpoints:   []string{"GET /v1/voice/config", "POST /v1/voice/transcripts"},
 				NextSteps: []string{
-					"6.2 choose and wrap a local STT runtime",
-					"6.3 add transcript creation API",
+					"6.3 harden transcript API for larger audio payloads",
 					"6.4 add microphone UI with editable transcript confirmation",
 					"6.5 send confirmed transcripts through POST /v1/requests",
 					"6.6 add host CLI voice command wrapper",
@@ -725,14 +734,56 @@ func (m AgentService) VoiceConfig() models.VoiceConfigResponse {
 }
 
 func (m AgentService) CreateVoiceTranscript(payload models.VoiceTranscriptRequest) models.VoiceTranscriptResponse {
+	if !m.voiceEnabled || m.transcriber == nil {
+		return models.VoiceTranscriptResponse{
+			Status:       "not_implemented",
+			Transcript:   "",
+			Confidence:   0,
+			STTProvider:  m.voiceProvider,
+			RequiresEdit: true,
+			NextEndpoint: "/v1/requests",
+			Message:      "Voice input is configured, but no local speech-to-text provider is available.",
+		}
+	}
+
+	timeout := time.Duration(m.voiceMaxSecs) * time.Second
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	result, err := m.transcriber.Transcribe(ctx, voice.Input{
+		AudioBase64: payload.AudioBase64,
+		MimeType:    payload.MimeType,
+		Language:    payload.Language,
+	})
+	if err != nil {
+		status := "invalid_audio"
+		message := "Audio could not be transcribed."
+		if errors.Is(err, voice.ErrUnavailable) {
+			status = "not_implemented"
+			message = "Voice input is configured, but no local speech-to-text provider is available."
+		}
+		return models.VoiceTranscriptResponse{
+			Status:       status,
+			Transcript:   "",
+			Confidence:   0,
+			STTProvider:  m.voiceProvider,
+			RequiresEdit: true,
+			NextEndpoint: "/v1/requests",
+			Message:      message,
+		}
+	}
+
 	return models.VoiceTranscriptResponse{
-		Status:       "not_implemented",
-		Transcript:   "",
-		Confidence:   0,
+		Status:       "completed",
+		Transcript:   result.Transcript,
+		Confidence:   result.Confidence,
 		STTProvider:  m.voiceProvider,
 		RequiresEdit: true,
 		NextEndpoint: "/v1/requests",
-		Message:      "Phase 6.1 exposes the voice contract. Local speech-to-text starts in Phase 6.2.",
+		Message:      "Transcript created locally. Review or edit it before planning a command.",
 	}
 }
 

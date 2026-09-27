@@ -12,6 +12,7 @@ Implemented backend capabilities:
 - Postgres-backed sessions, projects, messages, command events, and learned project commands
 - Ollama-backed command-event embeddings, backfill, semantic search, and hybrid memory ranking
 - voice runtime config and placeholder transcript contracts
+- command-based local speech-to-text adapter for `VOICE_STT_PROVIDER=command`
 
 ## Run
 
@@ -52,6 +53,9 @@ OLLAMA_MODEL=llama3.2:3b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 PLANNER_MODE=ollama
 COMMAND_TIMEOUT_SECONDS=30
+VOICE_INPUT_ENABLED=false
+VOICE_STT_PROVIDER=disabled
+VOICE_STT_COMMAND=
 ```
 
 `internal/planner` contains the Ollama planner and deterministic fallback planner.
@@ -110,7 +114,19 @@ GET /v1/voice/config
 POST /v1/voice/transcripts
 ```
 
-These endpoints make the roadmap executable in the app. Phase 6.1 is the current working product surface; local speech-to-text is the next implementation layer.
+These endpoints make the roadmap executable in the app. Phase 6.2 is the current working product surface; transcript hardening and microphone UI are the next implementation layers.
+
+## Voice Input
+
+Phase 6.2 supports a command-based local STT adapter. Set:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND='path/to/stt-command {audio}'
+```
+
+The backend writes the submitted audio to a temporary local file and replaces `{audio}` with that file path. The command must print the transcript to stdout. This is designed to wrap tools such as `whisper.cpp` without making that binary a required dependency yet.
 
 The next real implementation layers should be:
 
@@ -118,4 +134,4 @@ The next real implementation layers should be:
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
-- local speech-to-text adapter for `POST /v1/voice/transcripts`
+- frontend microphone capture and transcript confirmation
