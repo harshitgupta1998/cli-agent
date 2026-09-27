@@ -15,7 +15,7 @@ This repository starts as a dockerized product template with:
 
 ## Current Status
 
-Termind has completed **Phase 5: Semantic Recall** and has started **Phase 6: Voice Input**.
+Termind has completed **Phase 6: Voice Input**.
 
 Implemented:
 
@@ -118,6 +118,8 @@ Transcribe a local audio file, confirm the transcript, and route it through the 
 ../bin/termind -voice-audio ./request.wav
 ```
 
+With the default `.env.example` voice settings, this command should fail clearly with `voice transcription failed: not_implemented`. That is expected until `VOICE_INPUT_ENABLED=true` and a command STT provider are configured.
+
 Backfill command embeddings:
 
 ```bash
@@ -147,6 +149,56 @@ Then you can run:
 ```bash
 termind
 ```
+
+## Test Voice End To End
+
+Run the automated CLI voice flow test:
+
+```bash
+cd "/Users/harsgupta/Desktop/Code BKP/cli-agent/backend"
+go test ./cmd/termind -run TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript -v
+```
+
+That test uses a fake API and validates the full CLI path: audio file payload, transcript response, transcript confirmation, `POST /v1/requests`, local command execution, and `POST /v1/commands/record`.
+
+To manually test against the Docker backend without installing Whisper yet, configure a fake command STT provider in `.env`:
+
+```bash
+cd "/Users/harsgupta/Desktop/Code BKP/cli-agent"
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND=printf 'what is my current directory?'
+```
+
+Restart the stack:
+
+```bash
+/Applications/Docker.app/Contents/Resources/bin/docker compose up -d --build
+```
+
+Build and run the CLI voice command:
+
+```bash
+cd backend
+go build -o ../bin/termind ./cmd/termind
+printf 'fake audio' > /tmp/termind-request.wav
+../bin/termind -yes -voice-audio /tmp/termind-request.wav
+```
+
+Expected flow:
+
+1. CLI posts `/tmp/termind-request.wav` to `POST /v1/voice/transcripts`.
+2. Backend runs `VOICE_STT_COMMAND` and returns `what is my current directory?`.
+3. CLI asks `Use transcript as request? [Y/n]`; press Enter.
+4. CLI sends the transcript through `POST /v1/requests`.
+5. CLI runs the approved safe command locally because `-yes` is set.
+6. CLI records the result through `POST /v1/commands/record`.
 
 ## Local LLM Planner
 

@@ -2,7 +2,7 @@
 
 Go API service for the Termind product template.
 
-Current backend status: **Phase 6.5: Confirmed Voice Planning**.
+Current backend status: **Phase 6: Voice Input complete**.
 
 Implemented backend capabilities:
 
@@ -14,6 +14,7 @@ Implemented backend capabilities:
 - voice runtime config and placeholder transcript contracts
 - command-based local speech-to-text adapter for `VOICE_STT_PROVIDER=command`
 - confirmed voice transcripts route through the same planning and policy path as typed prompts
+- CLI audio-file voice wrapper through `termind -voice-audio`
 
 ## Run
 
@@ -82,6 +83,12 @@ cd ..
 pytest
 ```
 
+Run the CLI voice end-to-end test:
+
+```bash
+go test ./cmd/termind -run TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript -v
+```
+
 ## Current Packages
 
 ```text
@@ -132,6 +139,23 @@ The backend writes the submitted audio to a temporary local file and replaces `{
 
 The transcript endpoint validates MIME type, base64 audio, and `VOICE_MAX_AUDIO_BYTES` before invoking the local command.
 The frontend can now capture microphone audio, submit it for transcription, expose the transcript as editable prompt text, and send the confirmed transcript through the existing request planner. The host CLI can also send a local audio file with `termind -voice-audio ./request.wav`, confirm the returned transcript, and reuse the same local planning and execution path.
+
+Manual Docker-backed voice smoke test without Whisper:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND=printf 'what is my current directory?'
+```
+
+```bash
+cd ..
+/Applications/Docker.app/Contents/Resources/bin/docker compose up -d --build
+cd backend
+go build -o ../bin/termind ./cmd/termind
+printf 'fake audio' > /tmp/termind-request.wav
+../bin/termind -yes -voice-audio /tmp/termind-request.wav
+```
 
 The next real implementation layers should be:
 
