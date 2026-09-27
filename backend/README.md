@@ -140,6 +140,21 @@ The backend writes the submitted audio to a temporary local file and replaces `{
 The transcript endpoint validates MIME type, base64 audio, and `VOICE_MAX_AUDIO_BYTES` before invoking the local command.
 The frontend can now capture microphone audio, submit it for transcription, expose the transcript as editable prompt text, and send the confirmed transcript through the existing request planner. The host CLI can also send a local audio file with `termind -voice-audio ./request.wav`, confirm the returned transcript, and reuse the same local planning and execution path.
 
+The backend image includes an optional local Whisper adapter based on `faster-whisper` and `ffmpeg`. Enable it with:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND=python3 /app/scripts/termind-transcribe-faster-whisper.py {audio}
+TERMIND_STT_MODEL=tiny.en
+TERMIND_STT_MODEL_DIR=/models/whisper
+TERMIND_STT_DEVICE=cpu
+TERMIND_STT_COMPUTE_TYPE=int8
+TERMIND_STT_LANGUAGE=en
+```
+
+`docker-compose.yml` mounts `/models/whisper` as the `whisper-models` volume so the model is downloaded once and reused across backend restarts.
+
 Manual Docker-backed voice smoke test without Whisper:
 
 ```text

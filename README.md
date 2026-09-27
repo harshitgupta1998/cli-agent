@@ -200,6 +200,26 @@ Expected flow:
 5. CLI runs the approved safe command locally because `-yes` is set.
 6. CLI records the result through `POST /v1/commands/record`.
 
+To use the built-in local Whisper adapter instead of the fake command, set:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND=python3 /app/scripts/termind-transcribe-faster-whisper.py {audio}
+TERMIND_STT_MODEL=tiny.en
+TERMIND_STT_DEVICE=cpu
+TERMIND_STT_COMPUTE_TYPE=int8
+TERMIND_STT_LANGUAGE=en
+```
+
+Then rebuild:
+
+```bash
+/Applications/Docker.app/Contents/Resources/bin/docker compose up -d --build
+```
+
+The first transcription downloads the Whisper model into the `whisper-models` Docker volume. After that, browser microphone input and `../bin/termind -voice-audio ./request.wav` both use the same local STT path.
+
 ## Local LLM Planner
 
 Phase 2 uses Ollama when available:
