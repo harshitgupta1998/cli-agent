@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -85,12 +86,18 @@ func (t CommandTranscriber) Transcribe(ctx context.Context, input Input) (Result
 		command = command + " " + quotedPath
 	}
 
-	output, err := exec.CommandContext(ctx, "sh", "-c", command).CombinedOutput()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
 	if err != nil {
-		return Result{}, fmt.Errorf("run stt command: %w: %s", err, strings.TrimSpace(string(output)))
+		return Result{}, fmt.Errorf("run stt command: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	transcript := strings.TrimSpace(string(output))
+	transcript := strings.TrimSpace(stdout.String())
 	if transcript == "" {
 		return Result{}, errors.New("stt command returned empty transcript")
 	}

@@ -30,6 +30,26 @@ func TestCommandTranscriberRunsConfiguredCommand(t *testing.T) {
 	}
 }
 
+func TestCommandTranscriberIgnoresStderrDiagnostics(t *testing.T) {
+	transcriber := NewCommandTranscriber("printf 'diagnostic log' >&2; printf 'show current directory'")
+	audio := base64.StdEncoding.EncodeToString([]byte("fake audio"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	result, err := transcriber.Transcribe(ctx, Input{
+		AudioBase64: audio,
+		MimeType:    "audio/wav",
+		Language:    "en",
+	})
+	if err != nil {
+		t.Fatalf("Transcribe returned error: %v", err)
+	}
+	if result.Transcript != "show current directory" {
+		t.Fatalf("Transcript = %q, want stdout-only transcript", result.Transcript)
+	}
+}
+
 func TestDisabledTranscriberReturnsUnavailable(t *testing.T) {
 	_, err := DisabledTranscriber{}.Transcribe(context.Background(), Input{})
 	if err != ErrUnavailable {
