@@ -325,6 +325,5 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 - Move policy and execution into dedicated packages.
 - Add streaming output and cancellation for backend execution.
-- Enrich project context with package scripts and manifest summaries.
 - Backfill embeddings for existing command events.
 - Add hybrid semantic command retrieval with local Ollama embeddings.

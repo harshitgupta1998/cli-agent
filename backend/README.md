@@ -106,7 +106,7 @@ internal/services   agent service, policy, execution, roadmap metadata
 
 `GET /v1/sessions/{session_id}/messages` returns persisted user and assistant messages for a session.
 
-`GET /v1/context/project` now returns the stored project ID for a CWD, learned project commands, lightweight git status when available, and stack hints from files such as `go.mod`, `package.json`, `pyproject.toml`, and `requirements.txt`.
+`GET /v1/context/project` now returns the stored project ID for a CWD, learned project commands, manifest-detected commands, lightweight git status when available, and stack hints from files such as `go.mod`, `package.json`, `pyproject.toml`, and `requirements.txt`.
 
 ## Semantic Recall
 

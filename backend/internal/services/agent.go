@@ -467,11 +467,12 @@ func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
 	}
 
 	return models.ProjectContext{
-		ProjectID:      projectID,
-		RootPath:       cwd,
-		Git:            detectGit(cwd),
-		DetectedStack:  detectStack(cwd),
-		CommonCommands: commonCommands,
+		ProjectID:        projectID,
+		RootPath:         cwd,
+		Git:              detectGit(cwd),
+		DetectedStack:    detectStack(cwd),
+		CommonCommands:   commonCommands,
+		ManifestCommands: detectManifestCommands(cwd),
 	}
 }
 
@@ -546,6 +547,112 @@ func detectNodePackageManager(cwd string) string {
 	default:
 		return "npm"
 	}
+}
+
+func detectManifestCommands(cwd string) []models.ManifestCommand {
+	commands := []models.ManifestCommand{}
+	seen := map[string]bool{}
+	add := func(label string, command string, source string) {
+		label = strings.TrimSpace(label)
+		command = strings.TrimSpace(command)
+		source = strings.TrimSpace(source)
+		if label == "" || command == "" || seen[command] {
+			return
+		}
+		seen[command] = true
+		commands = append(commands, models.ManifestCommand{
+			Label:   label,
+			Command: command,
+			Source:  source,
+		})
+	}
+
+	if fileExists(cwd, "go.mod") {
+		add("Go test", "go test ./...", "go.mod")
+		add("Go run server", "go run ./cmd/server", "go.mod")
+	}
+	if fileExists(cwd, "docker-compose.yml") {
+		add("Docker Compose up", "docker compose up -d --build", "docker-compose.yml")
+	}
+	if fileExists(cwd, "requirements.txt") {
+		add("Python tests", "pytest", "requirements.txt")
+	}
+	if fileExists(cwd, "requirements-dev.txt") {
+		add("Python tests", "pytest", "requirements-dev.txt")
+	}
+
+	for _, script := range packageScripts(cwd) {
+		manager := detectNodePackageManager(cwd)
+		add(manager+" "+script, manager+" run "+script, "package.json")
+	}
+	for _, target := range makefileTargets(cwd) {
+		add("make "+target, "make "+target, "Makefile")
+	}
+
+	return commands
+}
+
+func packageScripts(cwd string) []string {
+	path := filepath.Join(cwd, "package.json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return []string{}
+	}
+	var manifest struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return []string{}
+	}
+	preferred := []string{"dev", "test", "typecheck", "build", "lint", "preview", "start"}
+	return orderedKeys(manifest.Scripts, preferred)
+}
+
+func makefileTargets(cwd string) []string {
+	path := filepath.Join(cwd, "Makefile")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return []string{}
+	}
+	targets := map[string]string{}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "\t") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		target := strings.TrimSpace(parts[0])
+		if target == "" || strings.ContainsAny(target, " =$") {
+			continue
+		}
+		targets[target] = target
+	}
+	preferred := []string{"dev", "test", "test-backend", "test-frontend", "test-integration", "build-cli", "build-api", "stop"}
+	return orderedKeys(targets, preferred)
+}
+
+func orderedKeys(values map[string]string, preferred []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	keys := []string{}
+	seen := map[string]bool{}
+	for _, key := range preferred {
+		if _, ok := values[key]; ok {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	for key := range values {
+		if !seen[key] {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func fileExists(cwd string, name string) bool {

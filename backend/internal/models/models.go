@@ -238,11 +238,12 @@ type ExplainCommandResponse struct {
 }
 
 type ProjectContext struct {
-	ProjectID      string           `json:"project_id"`
-	RootPath       string           `json:"root_path"`
-	Git            GitContext       `json:"git"`
-	DetectedStack  DetectedStack    `json:"detected_stack"`
-	CommonCommands []ProjectCommand `json:"common_commands"`
+	ProjectID        string            `json:"project_id"`
+	RootPath         string            `json:"root_path"`
+	Git              GitContext        `json:"git"`
+	DetectedStack    DetectedStack     `json:"detected_stack"`
+	CommonCommands   []ProjectCommand  `json:"common_commands"`
+	ManifestCommands []ManifestCommand `json:"manifest_commands"`
 }
 
 type GitContext struct {
@@ -260,4 +261,10 @@ type ProjectCommand struct {
 	Label        string `json:"label"`
 	Command      string `json:"command"`
 	SuccessCount int    `json:"success_count"`
+}
+
+type ManifestCommand struct {
+	Label   string `json:"label"`
+	Command string `json:"command"`
+	Source  string `json:"source"`
 }

@@ -125,6 +125,11 @@ type ProjectContext = {
     command: string;
     success_count: number;
   }>;
+  manifest_commands: Array<{
+    label: string;
+    command: string;
+    source: string;
+  }>;
 };
 
 type Phase = {
@@ -761,9 +766,15 @@ function App() {
               <strong>{project?.git.branch || 'main'}</strong>
             </div>
             <div className="command-stack">
+              {(project?.manifest_commands || []).slice(0, 6).map((command) => (
+                <code key={`${command.source}:${command.command}`}>{command.command}</code>
+              ))}
               {(project?.common_commands || []).map((command) => (
                 <code key={command.command}>{command.command}</code>
               ))}
+              {(!project?.manifest_commands?.length && !project?.common_commands?.length) && (
+                <div className="empty-state">No project commands detected yet.</div>
+              )}
             </div>
           </div>
         </section>

@@ -80,11 +80,10 @@ Implemented shape:
 - Command events attach to the session's project.
 - Memory search returns persisted command events or an empty result set.
 - Successful executions update learned project commands.
-- Project context detects git state and common stack files when available.
+- Project context detects git state, common stack files, package scripts, Makefile targets, and standard manifest commands when available.
 
 Future refinements:
 
-- richer project context from manifests and package scripts
 - memory pruning controls
 
 ## Phase 5: Semantic Recall
