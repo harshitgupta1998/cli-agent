@@ -176,6 +176,9 @@ def test_successful_execution_learns_project_command(api):
     assert project["project_id"] == session["project_id"]
     assert project["detected_stack"]["language"] == "go"
     assert project["detected_stack"]["package_manager"] == "go modules"
+    manifest_commands = {item["command"]: item for item in project["manifest_commands"]}
+    assert manifest_commands["go test ./..."]["source"] == "go.mod"
+    assert manifest_commands["go run ./cmd/server"]["source"] == "go.mod"
     learned = {item["command"]: item for item in project["common_commands"]}
     assert command in learned
     assert learned[command]["success_count"] >= 1

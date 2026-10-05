@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -13,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/harsgupta/termind/backend/internal/executor"
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
 	"github.com/harsgupta/termind/backend/internal/planner"
+	"github.com/harsgupta/termind/backend/internal/policy"
 	"github.com/harsgupta/termind/backend/internal/voice"
 )
 
@@ -153,7 +154,7 @@ func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.Use
 		RequestID: "req_" + shortID(),
 		Intent:    intent,
 		Plan:      plan,
-		Policy:    evaluatePolicy(plan),
+		Policy:    policy.Evaluate(plan),
 	}
 	m.persistRequestMessages(payload, response)
 	return response
@@ -173,7 +174,7 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 	}
 
 	command := strings.TrimSpace(payload.Command)
-	if blocked, reason := blockedCommand(command); blocked {
+	if blocked, reason := policy.BlockedCommand(command); blocked {
 		response := models.CommandExecuteResponse{
 			CommandEventID: "cmd_" + shortID(),
 			Status:         models.CommandStatusBlocked,
@@ -190,46 +191,8 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 		return response
 	}
 
-	timeout := m.commandTimeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = payload.CWD
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	durationMS := int(time.Since(started).Milliseconds())
-	exitCode := 0
-	status := models.CommandStatusCompleted
-	if err != nil {
-		exitCode = 1
-		status = models.CommandStatusFailed
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		if ctx.Err() == context.DeadlineExceeded {
-			stderr.WriteString("\nCommand timed out.")
-		}
-	}
-
-	response := models.CommandExecuteResponse{
-		CommandEventID: "cmd_" + shortID(),
-		Status:         status,
-		ExitCode:       &exitCode,
-		Stdout:         stdout.String(),
-		Stderr:         stderr.String(),
-		DurationMS:     durationMS,
-	}
+	response := executor.NewRunner(m.commandTimeout).Run(context.Background(), command, payload.CWD)
+	response.CommandEventID = "cmd_" + shortID()
 	if record := m.persistExecution(payload, response); record.CommandEventID != "" {
 		response.CommandEventID = record.CommandEventID
 		response.EmbeddingStatus = record.EmbeddingStatus
@@ -351,36 +314,6 @@ func (m AgentService) persistExecution(payload models.CommandExecuteRequest, res
 	return record
 }
 
-func blockedCommand(command string) (bool, string) {
-	normalized := strings.ToLower(strings.TrimSpace(command))
-	if normalized == "" {
-		return true, "Empty commands cannot be executed."
-	}
-
-	blockedMarkers := []string{
-		"rm -rf",
-		"git reset --hard",
-		"git clean",
-		"docker system prune",
-		"mkfs",
-		":(){",
-		"dd if=",
-		"drop table",
-		"shutdown",
-		"reboot",
-	}
-	for _, marker := range blockedMarkers {
-		if strings.Contains(normalized, marker) {
-			return true, "Command blocked by Termind safety policy."
-		}
-	}
-	if strings.Contains(normalized, "sudo ") {
-		return true, "Privileged commands are blocked in backend execution for now."
-	}
-
-	return false, ""
-}
-
 func summarize(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= 4000 {
@@ -467,11 +400,12 @@ func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
 	}
 
 	return models.ProjectContext{
-		ProjectID:      projectID,
-		RootPath:       cwd,
-		Git:            detectGit(cwd),
-		DetectedStack:  detectStack(cwd),
-		CommonCommands: commonCommands,
+		ProjectID:        projectID,
+		RootPath:         cwd,
+		Git:              detectGit(cwd),
+		DetectedStack:    detectStack(cwd),
+		CommonCommands:   commonCommands,
+		ManifestCommands: detectManifestCommands(cwd),
 	}
 }
 
@@ -546,6 +480,112 @@ func detectNodePackageManager(cwd string) string {
 	default:
 		return "npm"
 	}
+}
+
+func detectManifestCommands(cwd string) []models.ManifestCommand {
+	commands := []models.ManifestCommand{}
+	seen := map[string]bool{}
+	add := func(label string, command string, source string) {
+		label = strings.TrimSpace(label)
+		command = strings.TrimSpace(command)
+		source = strings.TrimSpace(source)
+		if label == "" || command == "" || seen[command] {
+			return
+		}
+		seen[command] = true
+		commands = append(commands, models.ManifestCommand{
+			Label:   label,
+			Command: command,
+			Source:  source,
+		})
+	}
+
+	if fileExists(cwd, "go.mod") {
+		add("Go test", "go test ./...", "go.mod")
+		add("Go run server", "go run ./cmd/server", "go.mod")
+	}
+	if fileExists(cwd, "docker-compose.yml") {
+		add("Docker Compose up", "docker compose up -d --build", "docker-compose.yml")
+	}
+	if fileExists(cwd, "requirements.txt") {
+		add("Python tests", "pytest", "requirements.txt")
+	}
+	if fileExists(cwd, "requirements-dev.txt") {
+		add("Python tests", "pytest", "requirements-dev.txt")
+	}
+
+	for _, script := range packageScripts(cwd) {
+		manager := detectNodePackageManager(cwd)
+		add(manager+" "+script, manager+" run "+script, "package.json")
+	}
+	for _, target := range makefileTargets(cwd) {
+		add("make "+target, "make "+target, "Makefile")
+	}
+
+	return commands
+}
+
+func packageScripts(cwd string) []string {
+	path := filepath.Join(cwd, "package.json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return []string{}
+	}
+	var manifest struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return []string{}
+	}
+	preferred := []string{"dev", "test", "typecheck", "build", "lint", "preview", "start"}
+	return orderedKeys(manifest.Scripts, preferred)
+}
+
+func makefileTargets(cwd string) []string {
+	path := filepath.Join(cwd, "Makefile")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return []string{}
+	}
+	targets := map[string]string{}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "\t") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		target := strings.TrimSpace(parts[0])
+		if target == "" || strings.ContainsAny(target, " =$") {
+			continue
+		}
+		targets[target] = target
+	}
+	preferred := []string{"dev", "test", "test-backend", "test-frontend", "test-integration", "build-cli", "build-api", "stop"}
+	return orderedKeys(targets, preferred)
+}
+
+func orderedKeys(values map[string]string, preferred []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	keys := []string{}
+	seen := map[string]bool{}
+	for _, key := range preferred {
+		if _, ok := values[key]; ok {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	for key := range values {
+		if !seen[key] {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func fileExists(cwd string, name string) bool {
@@ -827,34 +867,6 @@ func (m AgentService) voiceError(status string, message string) models.VoiceTran
 		RequiresEdit: true,
 		NextEndpoint: "/v1/requests",
 		Message:      message,
-	}
-}
-
-func evaluatePolicy(plan models.CommandPlan) models.PolicyDecision {
-	command := strings.ToLower(plan.Command)
-	risk := plan.Risk
-	warnings := []string{}
-
-	for _, marker := range []string{"rm -rf", "git reset --hard", "git clean", "docker system prune"} {
-		if strings.Contains(command, marker) {
-			risk = models.RiskDestructive
-			warnings = append(warnings, "This command can permanently remove or reset data.")
-			break
-		}
-	}
-
-	for _, marker := range []string{"sudo", "chown -r", "chmod -r"} {
-		if strings.Contains(command, marker) {
-			risk = models.RiskPrivileged
-			warnings = append(warnings, "This command requests elevated or broad system permissions.")
-			break
-		}
-	}
-
-	return models.PolicyDecision{
-		Risk:                 risk,
-		RequiresConfirmation: plan.RequiresConfirmation || risk != "safe",
-		Warnings:             warnings,
 	}
 }
 

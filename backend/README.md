@@ -2,7 +2,7 @@
 
 Go API service for the Termind product template.
 
-Current backend status: **Phase 6.5: Confirmed Voice Planning**.
+Current backend status: **Phase 6: Voice Input complete**.
 
 Implemented backend capabilities:
 
@@ -14,6 +14,7 @@ Implemented backend capabilities:
 - voice runtime config and placeholder transcript contracts
 - command-based local speech-to-text adapter for `VOICE_STT_PROVIDER=command`
 - confirmed voice transcripts route through the same planning and policy path as typed prompts
+- CLI audio-file voice wrapper through `termind -voice-audio`
 
 ## Run
 
@@ -65,7 +66,7 @@ VOICE_MAX_AUDIO_BYTES=5242880
 
 ## Safe Execution
 
-`POST /v1/commands/execute` runs approved commands through the backend process runner. It captures stdout, stderr, exit code, and duration, applies a small destructive-command denylist, and records command events to Postgres when the store is available.
+`POST /v1/commands/execute` runs approved commands through `internal/executor`. It captures stdout, stderr, exit code, and duration, applies a small destructive-command denylist through `internal/policy`, and records command events to Postgres when the store is available.
 
 When the API is running in Docker, commands execute inside the backend container. Use `/app` as the frontend/default CWD for container execution. The CLI path is different: it gets plans from the API, then executes approved commands on the host from the directory where `termind` was launched.
 
@@ -82,15 +83,23 @@ cd ..
 pytest
 ```
 
+Run the CLI voice end-to-end test:
+
+```bash
+go test ./cmd/termind -run TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript -v
+```
+
 ## Current Packages
 
 ```text
 cmd/server          process entrypoint
 internal/api        HTTP routing, CORS, validation, JSON helpers
 internal/config     environment configuration
+internal/executor   backend process runner with timeout and output capture
 internal/models     request/response contracts
+internal/policy     deterministic command risk evaluation and execution blocking
 internal/planner    Ollama and rule planners
-internal/services   agent service, policy, execution, roadmap metadata
+internal/services   agent orchestration, persistence coordination, roadmap metadata
 ```
 
 ## Persistent Memory
@@ -99,7 +108,7 @@ internal/services   agent service, policy, execution, roadmap metadata
 
 `GET /v1/sessions/{session_id}/messages` returns persisted user and assistant messages for a session.
 
-`GET /v1/context/project` now returns the stored project ID for a CWD, learned project commands, lightweight git status when available, and stack hints from files such as `go.mod`, `package.json`, `pyproject.toml`, and `requirements.txt`.
+`GET /v1/context/project` now returns the stored project ID for a CWD, learned project commands, manifest-detected commands, lightweight git status when available, and stack hints from files such as `go.mod`, `package.json`, `pyproject.toml`, and `requirements.txt`.
 
 ## Semantic Recall
 
@@ -116,7 +125,7 @@ GET /v1/voice/config
 POST /v1/voice/transcripts
 ```
 
-These endpoints make the roadmap executable in the app. Phase 6.2 is the current working product surface; transcript hardening and microphone UI are the next implementation layers.
+These endpoints make the roadmap executable in the app. Phase 6 is the current working product surface; local STT packaging and live CLI recording are the next implementation layers.
 
 ## Voice Input
 
@@ -133,10 +142,41 @@ The backend writes the submitted audio to a temporary local file and replaces `{
 The transcript endpoint validates MIME type, base64 audio, and `VOICE_MAX_AUDIO_BYTES` before invoking the local command.
 The frontend can now capture microphone audio, submit it for transcription, expose the transcript as editable prompt text, and send the confirmed transcript through the existing request planner. The host CLI can also send a local audio file with `termind -voice-audio ./request.wav`, confirm the returned transcript, and reuse the same local planning and execution path.
 
+The backend image includes an optional local Whisper adapter based on `faster-whisper` and `ffmpeg`. Enable it with:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND=python3 /app/scripts/termind-transcribe-faster-whisper.py {audio}
+TERMIND_STT_MODEL=tiny.en
+TERMIND_STT_MODEL_DIR=/models/whisper
+TERMIND_STT_DEVICE=cpu
+TERMIND_STT_COMPUTE_TYPE=int8
+TERMIND_STT_LANGUAGE=en
+```
+
+`docker-compose.yml` mounts `/models/whisper` as the `whisper-models` volume so the model is downloaded once and reused across backend restarts.
+
+Manual Docker-backed voice smoke test without Whisper:
+
+```text
+VOICE_INPUT_ENABLED=true
+VOICE_STT_PROVIDER=command
+VOICE_STT_COMMAND=printf 'what is my current directory?'
+```
+
+```bash
+cd ..
+/Applications/Docker.app/Contents/Resources/bin/docker compose up -d --build
+cd backend
+go build -o ../bin/termind ./cmd/termind
+printf 'fake audio' > /tmp/termind-request.wav
+../bin/termind -yes -voice-audio /tmp/termind-request.wav
+```
+
 The next real implementation layers should be:
 
-- `internal/policy` for deterministic command risk evaluation
-- `internal/executor` for streaming and cancellation around the current process runner
+- streaming and cancellation around `internal/executor`
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
 - production STT packaging and cross-platform live CLI recording

@@ -1,6 +1,6 @@
 # Termind Phase Plan
 
-Current phase: **Phase 6.1 is in progress**. Phase 5 semantic recall is complete.
+Current phase: **Phase 6 is complete**. Local speech-to-text is available through a command adapter, and confirmed transcripts reuse the normal planning, policy, confirmation, and execution path.
 
 ## Phase 1: Command Workbench
 
@@ -15,7 +15,7 @@ typed request -> command plan -> policy review -> user approval -> safe executio
 - React TypeScript command workbench.
 - Go HTTP API with stable contracts.
 - Rule planner that returns structured command plans.
-- Deterministic policy scaffold.
+- Deterministic policy package for command risk evaluation.
 - Initial execution contract for stdout, stderr, exit code, and duration.
 - Postgres-backed command event recording.
 - Memory search API over command events.
@@ -80,11 +80,11 @@ Implemented shape:
 - Command events attach to the session's project.
 - Memory search returns persisted command events or an empty result set.
 - Successful executions update learned project commands.
-- Project context detects git state and common stack files when available.
+- Project context detects git state, common stack files, package scripts, Makefile targets, and standard manifest commands when available.
 
 Future refinements:
 
-- richer project context from manifests and package scripts
+- add streaming and cancellation to the executor package
 - memory pruning controls
 
 ## Phase 5: Semantic Recall

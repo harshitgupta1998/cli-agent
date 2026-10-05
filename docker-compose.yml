@@ -32,12 +32,18 @@ services:
       VOICE_STT_COMMAND: ${VOICE_STT_COMMAND:-}
       VOICE_MAX_AUDIO_SECONDS: ${VOICE_MAX_AUDIO_SECONDS:-30}
       VOICE_MAX_AUDIO_BYTES: ${VOICE_MAX_AUDIO_BYTES:-5242880}
+      TERMIND_STT_MODEL: ${TERMIND_STT_MODEL:-tiny.en}
+      TERMIND_STT_MODEL_DIR: ${TERMIND_STT_MODEL_DIR:-/models/whisper}
+      TERMIND_STT_DEVICE: ${TERMIND_STT_DEVICE:-cpu}
+      TERMIND_STT_COMPUTE_TYPE: ${TERMIND_STT_COMPUTE_TYPE:-int8}
+      TERMIND_STT_LANGUAGE: ${TERMIND_STT_LANGUAGE:-en}
       CORS_ORIGIN: http://localhost:5173
     depends_on:
       database:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - whisper-models:/models/whisper
 
   database:
     image: postgres:16-alpine
@@ -60,3 +66,4 @@ services:
 
 volumes:
   postgres-data:
+  whisper-models:
