@@ -66,7 +66,7 @@ VOICE_MAX_AUDIO_BYTES=5242880
 
 ## Safe Execution
 
-`POST /v1/commands/execute` runs approved commands through the backend process runner. It captures stdout, stderr, exit code, and duration, applies a small destructive-command denylist, and records command events to Postgres when the store is available.
+`POST /v1/commands/execute` runs approved commands through `internal/executor`. It captures stdout, stderr, exit code, and duration, applies a small destructive-command denylist through `internal/policy`, and records command events to Postgres when the store is available.
 
 When the API is running in Docker, commands execute inside the backend container. Use `/app` as the frontend/default CWD for container execution. The CLI path is different: it gets plans from the API, then executes approved commands on the host from the directory where `termind` was launched.
 
@@ -95,10 +95,11 @@ go test ./cmd/termind -run TestVoiceAudioWrapperPlansExecutesAndRecordsTranscrip
 cmd/server          process entrypoint
 internal/api        HTTP routing, CORS, validation, JSON helpers
 internal/config     environment configuration
+internal/executor   backend process runner with timeout and output capture
 internal/models     request/response contracts
 internal/policy     deterministic command risk evaluation and execution blocking
 internal/planner    Ollama and rule planners
-internal/services   agent orchestration, execution, roadmap metadata
+internal/services   agent orchestration, persistence coordination, roadmap metadata
 ```
 
 ## Persistent Memory
@@ -175,7 +176,7 @@ printf 'fake audio' > /tmp/termind-request.wav
 
 The next real implementation layers should be:
 
-- `internal/executor` for streaming and cancellation around the current process runner
+- streaming and cancellation around `internal/executor`
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
 - production STT packaging and cross-platform live CLI recording

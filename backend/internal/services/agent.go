@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/harsgupta/termind/backend/internal/executor"
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
 	"github.com/harsgupta/termind/backend/internal/planner"
@@ -191,46 +191,8 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 		return response
 	}
 
-	timeout := m.commandTimeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = payload.CWD
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	durationMS := int(time.Since(started).Milliseconds())
-	exitCode := 0
-	status := models.CommandStatusCompleted
-	if err != nil {
-		exitCode = 1
-		status = models.CommandStatusFailed
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		if ctx.Err() == context.DeadlineExceeded {
-			stderr.WriteString("\nCommand timed out.")
-		}
-	}
-
-	response := models.CommandExecuteResponse{
-		CommandEventID: "cmd_" + shortID(),
-		Status:         status,
-		ExitCode:       &exitCode,
-		Stdout:         stdout.String(),
-		Stderr:         stderr.String(),
-		DurationMS:     durationMS,
-	}
+	response := executor.NewRunner(m.commandTimeout).Run(context.Background(), command, payload.CWD)
+	response.CommandEventID = "cmd_" + shortID()
 	if record := m.persistExecution(payload, response); record.CommandEventID != "" {
 		response.CommandEventID = record.CommandEventID
 		response.EmbeddingStatus = record.EmbeddingStatus

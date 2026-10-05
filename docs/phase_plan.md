@@ -84,7 +84,7 @@ Implemented shape:
 
 Future refinements:
 
-- move process execution into a dedicated package with streaming and cancellation
+- add streaming and cancellation to the executor package
 - memory pruning controls
 
 ## Phase 5: Semantic Recall

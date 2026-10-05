@@ -323,6 +323,6 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 ## Next Development Steps
 
-- Move backend execution into a dedicated package with streaming and cancellation.
+- Add streaming output and cancellation to the backend executor.
 - Improve local STT packaging and cross-platform live CLI recording.
 - Add production hardening around auth, workspace trust, and audit retention.
