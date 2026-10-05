@@ -323,7 +323,6 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 ## Next Development Steps
 
-- Move policy and execution into dedicated packages.
-- Add streaming output and cancellation for backend execution.
-- Backfill embeddings for existing command events.
-- Add hybrid semantic command retrieval with local Ollama embeddings.
+- Move backend execution into a dedicated package with streaming and cancellation.
+- Improve local STT packaging and cross-platform live CLI recording.
+- Add production hardening around auth, workspace trust, and audit retention.

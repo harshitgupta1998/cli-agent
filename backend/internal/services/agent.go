@@ -16,6 +16,7 @@ import (
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
 	"github.com/harsgupta/termind/backend/internal/planner"
+	"github.com/harsgupta/termind/backend/internal/policy"
 	"github.com/harsgupta/termind/backend/internal/voice"
 )
 
@@ -153,7 +154,7 @@ func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.Use
 		RequestID: "req_" + shortID(),
 		Intent:    intent,
 		Plan:      plan,
-		Policy:    evaluatePolicy(plan),
+		Policy:    policy.Evaluate(plan),
 	}
 	m.persistRequestMessages(payload, response)
 	return response
@@ -173,7 +174,7 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 	}
 
 	command := strings.TrimSpace(payload.Command)
-	if blocked, reason := blockedCommand(command); blocked {
+	if blocked, reason := policy.BlockedCommand(command); blocked {
 		response := models.CommandExecuteResponse{
 			CommandEventID: "cmd_" + shortID(),
 			Status:         models.CommandStatusBlocked,
@@ -349,36 +350,6 @@ func (m AgentService) persistExecution(payload models.CommandExecuteRequest, res
 		return models.CommandRecordResponse{}
 	}
 	return record
-}
-
-func blockedCommand(command string) (bool, string) {
-	normalized := strings.ToLower(strings.TrimSpace(command))
-	if normalized == "" {
-		return true, "Empty commands cannot be executed."
-	}
-
-	blockedMarkers := []string{
-		"rm -rf",
-		"git reset --hard",
-		"git clean",
-		"docker system prune",
-		"mkfs",
-		":(){",
-		"dd if=",
-		"drop table",
-		"shutdown",
-		"reboot",
-	}
-	for _, marker := range blockedMarkers {
-		if strings.Contains(normalized, marker) {
-			return true, "Command blocked by Termind safety policy."
-		}
-	}
-	if strings.Contains(normalized, "sudo ") {
-		return true, "Privileged commands are blocked in backend execution for now."
-	}
-
-	return false, ""
 }
 
 func summarize(value string) string {
@@ -934,34 +905,6 @@ func (m AgentService) voiceError(status string, message string) models.VoiceTran
 		RequiresEdit: true,
 		NextEndpoint: "/v1/requests",
 		Message:      message,
-	}
-}
-
-func evaluatePolicy(plan models.CommandPlan) models.PolicyDecision {
-	command := strings.ToLower(plan.Command)
-	risk := plan.Risk
-	warnings := []string{}
-
-	for _, marker := range []string{"rm -rf", "git reset --hard", "git clean", "docker system prune"} {
-		if strings.Contains(command, marker) {
-			risk = models.RiskDestructive
-			warnings = append(warnings, "This command can permanently remove or reset data.")
-			break
-		}
-	}
-
-	for _, marker := range []string{"sudo", "chown -r", "chmod -r"} {
-		if strings.Contains(command, marker) {
-			risk = models.RiskPrivileged
-			warnings = append(warnings, "This command requests elevated or broad system permissions.")
-			break
-		}
-	}
-
-	return models.PolicyDecision{
-		Risk:                 risk,
-		RequiresConfirmation: plan.RequiresConfirmation || risk != "safe",
-		Warnings:             warnings,
 	}
 }
 

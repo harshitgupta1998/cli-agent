@@ -96,8 +96,9 @@ cmd/server          process entrypoint
 internal/api        HTTP routing, CORS, validation, JSON helpers
 internal/config     environment configuration
 internal/models     request/response contracts
+internal/policy     deterministic command risk evaluation and execution blocking
 internal/planner    Ollama and rule planners
-internal/services   agent service, policy, execution, roadmap metadata
+internal/services   agent orchestration, execution, roadmap metadata
 ```
 
 ## Persistent Memory
@@ -123,7 +124,7 @@ GET /v1/voice/config
 POST /v1/voice/transcripts
 ```
 
-These endpoints make the roadmap executable in the app. Phase 6.2 is the current working product surface; transcript hardening and microphone UI are the next implementation layers.
+These endpoints make the roadmap executable in the app. Phase 6 is the current working product surface; local STT packaging and live CLI recording are the next implementation layers.
 
 ## Voice Input
 
@@ -174,7 +175,6 @@ printf 'fake audio' > /tmp/termind-request.wav
 
 The next real implementation layers should be:
 
-- `internal/policy` for deterministic command risk evaluation
 - `internal/executor` for streaming and cancellation around the current process runner
 - expanded `internal/memory` queries and cleanup tools
 - richer `internal/context` detection from manifests and package scripts
