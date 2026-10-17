@@ -1,8 +1,9 @@
+import os
 from uuid import uuid4
 
 
 DEFAULT_CWD = "/Users/example/projects/termind"
-BACKEND_CWD = "/app"
+BACKEND_CWD = os.environ.get("TERMIND_TEST_BACKEND_CWD", "/app")
 
 
 def test_phase_one_review_run_remember_flow(api):

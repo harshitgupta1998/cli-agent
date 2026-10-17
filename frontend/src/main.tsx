@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AlertCircle,
@@ -79,7 +79,7 @@ type UserRequestResponse = {
 
 type CommandExecution = {
   command_event_id: string;
-  status: 'completed' | 'rejected';
+  status: 'running' | 'completed' | 'rejected' | 'blocked' | 'failed' | 'cancelled';
   exit_code: number | null;
   stdout: string;
   stderr: string;
@@ -233,7 +233,9 @@ function App() {
   const [phaseResponse, setPhaseResponse] = useState<PhaseResponse | null>(null);
   const [capabilities, setCapabilities] = useState<MockCapability[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const executionController = useRef<AbortController | null>(null);
 
   const riskTone = useMemo<RiskTone>(() => {
     const risk = plan?.policy.risk || 'safe';
@@ -317,10 +319,23 @@ function App() {
   async function runCommand() {
     if (!plan?.plan.command) return;
 
+    const controller = new AbortController();
+    executionController.current = controller;
+    setIsExecuting(true);
     setLoading(true);
+    setExecution({
+      command_event_id: '',
+      status: 'running',
+      exit_code: null,
+      stdout: '',
+      stderr: '',
+      duration_ms: 0,
+    });
     try {
-      const response = await requestJson<CommandExecution>('/v1/commands/execute', {
+      const response = await fetch(`${API_BASE_URL}/v1/commands/execute`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        signal: controller.signal,
         body: JSON.stringify({
           session_id: sessionId,
           request_id: plan.request_id,
@@ -335,11 +350,74 @@ function App() {
           },
         }),
       });
-      setExecution(response);
-      await searchMemory(input);
+      if (!response.ok || !response.body) {
+        throw new Error(`Execution request failed (${response.status}).`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let completed = false;
+      const handleEvent = (block: string) => {
+        const lines = block.split(/\r?\n/);
+        const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+        const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n');
+        if (!data) return;
+        const payload = JSON.parse(data) as CommandExecution | { stream: 'stdout' | 'stderr'; data: string };
+        if (eventName === 'output') {
+          const chunk = payload as { stream: 'stdout' | 'stderr'; data: string };
+          setExecution((current) => current ? {
+            ...current,
+            [chunk.stream]: current[chunk.stream] + chunk.data,
+          } : current);
+        } else if (eventName === 'complete') {
+          completed = true;
+          setExecution(payload as CommandExecution);
+        } else if (eventName === 'error') {
+          throw new Error((payload as { message?: string }).message || 'Command execution failed.');
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        buffer = buffer.replace(/\r\n/g, '\n');
+        let separator = buffer.indexOf('\n\n');
+        while (separator >= 0) {
+          handleEvent(buffer.slice(0, separator));
+          buffer = buffer.slice(separator + 2);
+          separator = buffer.indexOf('\n\n');
+        }
+        if (done) break;
+      }
+      if (buffer.trim()) handleEvent(buffer);
+      if (!completed && !controller.signal.aborted) {
+        throw new Error('Execution stream ended before a result was received.');
+      }
+      if (completed) await searchMemory(input);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setExecution((current) => current ? {
+          ...current,
+          status: 'cancelled',
+          stderr: current.stderr || 'Command cancelled by user.',
+        } : current);
+      } else {
+        setExecution((current) => current ? {
+          ...current,
+          status: 'failed',
+          stderr: `${current.stderr}${current.stderr ? '\n' : ''}${error instanceof Error ? error.message : 'Command execution failed.'}`,
+        } : current);
+      }
     } finally {
+      executionController.current = null;
+      setIsExecuting(false);
       setLoading(false);
     }
+  }
+
+  function cancelCommand() {
+    executionController.current?.abort();
   }
 
   async function searchMemory(query: string) {
@@ -650,7 +728,7 @@ function App() {
                   <span>Intent: {plan.intent}</span>
                   <span>CWD: {plan.plan.cwd}</span>
                 </div>
-                <button className="primary-action" onClick={runCommand} disabled={loading || !plan.plan.command}>
+                <button className="primary-action" onClick={runCommand} disabled={loading || isExecuting || !plan.plan.command}>
                   <Play size={18} />
                   Run approved command
                 </button>
@@ -677,16 +755,24 @@ function App() {
           {execution && (
             <div className="terminal-output">
               <div className="output-header">
-                <span>Execution result</span>
-                <span>
-                  exit {execution.exit_code ?? 'n/a'} · {execution.duration_ms}ms
-                  {execution.embedding_status ? ` · embedding ${execution.embedding_status}` : ''}
-                </span>
+                <span>{execution.status === 'running' ? 'Command running' : 'Execution result'}</span>
+                <div className="output-actions">
+                  <span>
+                    {execution.status === 'running' ? 'Streaming output' : `${execution.status} · exit ${execution.exit_code ?? 'n/a'} · ${execution.duration_ms}ms`}
+                    {execution.embedding_status ? ` · embedding ${execution.embedding_status}` : ''}
+                  </span>
+                  {isExecuting && (
+                    <button className="stop-action" onClick={cancelCommand} title="Stop command" aria-label="Stop command">
+                      <Square size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
               {execution.embedding_model && (
                 <div className="output-meta">Stored with {execution.embedding_model}</div>
               )}
-              <pre>{execution.stdout || execution.stderr}</pre>
+              {execution.stdout && <pre className="stdout-output">{execution.stdout}</pre>}
+              {execution.stderr && <pre className="stderr-output">{execution.stderr}</pre>}
             </div>
           )}
         </section>

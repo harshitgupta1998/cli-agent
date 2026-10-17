@@ -477,11 +477,51 @@ pre {
 
 .output-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  align-items: center;
   gap: 16px;
   padding: 12px 14px;
   color: #a9bbb0;
   background: rgba(255, 255, 255, 0.05);
+}
+
+.output-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-align: right;
+}
+
+.stop-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  border-radius: 6px;
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.stop-action:hover {
+  background: rgba(248, 113, 113, 0.22);
+}
+
+.terminal-output pre {
+  max-height: 420px;
+  overflow: auto;
+  padding: 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-output .stderr-output {
+  color: #fecaca;
+  border-top: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 .output-meta {

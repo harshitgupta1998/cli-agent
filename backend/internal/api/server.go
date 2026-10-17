@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/models"
@@ -51,21 +52,24 @@ func (s Server) health(w http.ResponseWriter, r *http.Request) {
 
 func (s Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"product":                 "Termind",
-		"local_only_mode":         s.cfg.LocalOnlyMode == "true",
-		"ollama_base_url":         s.cfg.OllamaBaseURL,
-		"ollama_model":            s.cfg.OllamaModel,
-		"ollama_embed_model":      s.cfg.OllamaEmbedModel,
-		"planner_mode":            s.cfg.PlannerMode,
-		"command_timeout_seconds": int(s.cfg.CommandTimeout.Seconds()),
-		"database":                "postgres",
-		"backend_runtime":         "go",
-		"mode":                    "phase_6_voice_input",
-		"voice_input_enabled":     s.cfg.VoiceEnabled == "true",
-		"voice_stt_provider":      s.cfg.VoiceSTTProvider,
-		"voice_stt_command":       s.cfg.VoiceSTTCommand != "",
-		"voice_max_audio_seconds": s.cfg.VoiceMaxSeconds,
-		"voice_max_audio_bytes":   s.cfg.VoiceMaxBytes,
+		"product":                  "Termind",
+		"local_only_mode":          s.cfg.LocalOnlyMode == "true",
+		"ollama_base_url":          s.cfg.OllamaBaseURL,
+		"ollama_model":             s.cfg.OllamaModel,
+		"ollama_embed_model":       s.cfg.OllamaEmbedModel,
+		"planner_mode":             s.cfg.PlannerMode,
+		"command_timeout_seconds":  int(s.cfg.CommandTimeout.Seconds()),
+		"command_max_output_bytes": s.cfg.CommandMaxOutputBytes,
+		"execution_allowed_roots":  s.cfg.ExecutionAllowedRoots,
+		"execution_env_allowlist":  s.cfg.ExecutionEnvAllowlist,
+		"database":                 "postgres",
+		"backend_runtime":          "go",
+		"mode":                     "phase_6_voice_input",
+		"voice_input_enabled":      s.cfg.VoiceEnabled == "true",
+		"voice_stt_provider":       s.cfg.VoiceSTTProvider,
+		"voice_stt_command":        s.cfg.VoiceSTTCommand != "",
+		"voice_max_audio_seconds":  s.cfg.VoiceMaxSeconds,
+		"voice_max_audio_bytes":    s.cfg.VoiceMaxBytes,
 	})
 }
 
@@ -126,7 +130,51 @@ func (s Server) executeCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		s.streamCommand(w, r, payload)
+		return
+	}
 	writeJSON(w, http.StatusOK, s.agent.Execute(payload))
+}
+
+func (s Server) streamCommand(w http.ResponseWriter, r *http.Request, payload models.CommandExecuteRequest) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming_unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	var writeMu sync.Mutex
+	writeEvent := func(event string, payload any) error {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if _, err := w.Write([]byte("event: " + event + "\ndata: ")); err != nil {
+			return err
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte("\n\n")); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	response := s.agent.ExecuteStream(r.Context(), payload, func(chunk models.CommandOutputChunk) {
+		_ = writeEvent("output", chunk)
+	})
+	_ = writeEvent("complete", response)
 }
 
 func (s Server) recordCommand(w http.ResponseWriter, r *http.Request) {
