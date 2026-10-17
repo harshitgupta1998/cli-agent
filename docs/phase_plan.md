@@ -83,8 +83,8 @@ Remaining work:
 
 Implementation contract: [security_model.md](security_model.md). These checkpoints must be completed and verified in order before remote or multi-user deployment:
 
-- S1: security contract and compatibility decisions - documented
-- S2: user identity, opaque hashed API tokens, auth middleware, and fail-closed remote mode
+- S1: security contract and compatibility decisions - implemented
+- S2: user identity, opaque hashed API tokens, auth middleware, and fail-closed remote mode - implemented
 - S3: explicit workspace ownership, legacy data migration, and owner-scoped persistence/API access
 - S4: versioned workspace command permissions and confirmation binding, enforced before executor dispatch
 - S5: CLI/frontend workspace and credential integration, end-to-end isolation tests, and deployment hardening

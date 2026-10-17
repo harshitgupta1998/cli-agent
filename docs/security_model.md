@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the security contract for authentication and workspace permissions. It does not claim that authentication or multi-user isolation is implemented yet. Until the implementation checkpoints below are complete, Termind is a local single-user tool only.
+This document defines the security contract for authentication and workspace permissions. S1 (the contract) and S2 (single-principal bearer authentication and token lifecycle) are implemented. Workspace ownership and per-workspace authorization are not yet implemented, so Termind must not be treated as ready for remote or multi-user use.
 
 ## Deployment modes
 
@@ -14,7 +14,8 @@ This document defines the security contract for authentication and workspace per
 
 - A user is the authenticated principal. Request payloads cannot select or override that principal.
 - CLI and initial API clients use opaque, randomly generated bearer tokens. Only a cryptographic hash of a token is stored. Plaintext is returned once at creation, is not logged, and is revocable.
-- Tokens have an owner, a human-readable label, creation and last-used timestamps, and an optional expiry/revocation timestamp.
+- Tokens have an owner, a human-readable label, creation and last-used timestamps, and a revocation timestamp. Expiry is not part of the initial token API.
+- S2 currently has one configured bootstrap principal; self-service user creation, invitation, and account login are not implemented.
 - Invalid, expired, or revoked credentials receive `401`; a valid identity without access receives `404` for workspace-owned resources and `403` for an explicit permission denial.
 - Browser login/OIDC and refresh-token flows are later extensions; they do not change the ownership model.
 
@@ -56,7 +57,7 @@ Unknown or malformed policy values fail closed. Destructive and privileged comma
 ## Planned data model
 
 - `users`: stable identity, status, timestamps.
-- `api_tokens`: user owner, token hash, label, created/last-used/expiry/revocation timestamps.
+- `api_tokens`: user owner, token hash, label, created/last-used/revocation timestamps.
 - `workspaces`: owner, name, canonical root, status, timestamps.
 - `workspace_permissions`: workspace, policy version, typed policy settings, update actor and timestamp.
 - Existing project/session/event data gains workspace ownership; command events also record the initiating user and the policy version/decision.

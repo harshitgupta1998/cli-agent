@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/harsgupta/termind/backend/internal/api"
+	"github.com/harsgupta/termind/backend/internal/auth"
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/embeddings"
 	"github.com/harsgupta/termind/backend/internal/executor"
@@ -23,14 +24,27 @@ func main() {
 	defer cancel()
 
 	var store memory.Store
+	var authRepository auth.Repository
 	embedder := embeddings.NewOllamaEmbedder(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
 	postgresStore, err := memory.NewPostgresStore(ctx, cfg.DatabaseURL, embedder)
 	if err != nil {
+		if cfg.LocalOnlyMode != "true" {
+			log.Fatalf("authenticated mode requires Postgres and auth migrations: %v", err)
+		}
 		log.Printf("Postgres unavailable, using in-memory mock search/record fallback: %v", err)
 	}
 	if postgresStore != nil {
 		store = postgresStore
+		authRepository = postgresStore
 		defer postgresStore.Close()
+	}
+	if cfg.LocalOnlyMode != "true" && len(cfg.BootstrapToken) < 32 {
+		log.Fatal("authenticated mode requires TERMIND_BOOTSTRAP_TOKEN with at least 32 characters")
+	}
+	principal := auth.Principal{UserID: cfg.BootstrapUserID, Name: cfg.BootstrapUserName}
+	authManager := auth.NewManager(authRepository, cfg.BootstrapToken, principal)
+	if err := authManager.EnsureBootstrapUser(ctx); err != nil {
+		log.Fatalf("initialize bootstrap identity: %v", err)
 	}
 
 	rulePlanner := planner.NewRulePlanner()
@@ -50,7 +64,7 @@ func main() {
 	if cfg.VoiceSTTProvider == "command" {
 		agent = agent.WithVoiceTranscriber(voice.NewCommandTranscriber(cfg.VoiceSTTCommand))
 	}
-	server := api.NewServer(cfg, agent)
+	server := api.NewServer(cfg, agent, authManager)
 
 	log.Printf("Termind API listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, server.Routes()); err != nil {

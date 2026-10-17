@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"sync"
 
+	"github.com/harsgupta/termind/backend/internal/auth"
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/models"
 	"github.com/harsgupta/termind/backend/internal/services"
@@ -15,16 +17,24 @@ import (
 type Server struct {
 	cfg   config.Config
 	agent services.Agent
+	auth  *auth.Manager
 }
 
-func NewServer(cfg config.Config, agent services.Agent) Server {
-	return Server{cfg: cfg, agent: agent}
+func NewServer(cfg config.Config, agent services.Agent, authManagers ...auth.Manager) Server {
+	server := Server{cfg: cfg, agent: agent}
+	if len(authManagers) > 0 {
+		server.auth = &authManagers[0]
+	}
+	return server
 }
 
 func (s Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /v1/auth/me", s.getIdentity)
+	mux.HandleFunc("POST /v1/auth/tokens", s.createAPIToken)
+	mux.HandleFunc("DELETE /v1/auth/tokens/{token_id}", s.revokeAPIToken)
 	mux.HandleFunc("GET /v1/config", s.getConfig)
 	mux.HandleFunc("POST /v1/sessions", s.createSession)
 	mux.HandleFunc("GET /v1/sessions/{session_id}/messages", s.listSessionMessages)
@@ -40,7 +50,97 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/voice/config", s.getVoiceConfig)
 	mux.HandleFunc("POST /v1/voice/transcripts", s.createVoiceTranscript)
 
-	return s.withCORS(mux)
+	return s.withCORS(s.withAuthentication(mux))
+}
+
+type principalContextKey struct{}
+
+func principalFromContext(ctx context.Context) (auth.Principal, bool) {
+	principal, ok := ctx.Value(principalContextKey{}).(auth.Principal)
+	return principal, ok
+}
+
+func (s Server) withAuthentication(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		if header == "" {
+			if s.cfg.LocalOnlyMode == "true" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "authentication_required")
+			return
+		}
+		parts := strings.SplitN(header, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" || s.auth == nil {
+			writeError(w, http.StatusUnauthorized, "invalid_bearer_token")
+			return
+		}
+		principal, ok, err := s.auth.Authenticate(r.Context(), strings.TrimSpace(parts[1]))
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "authentication_unavailable")
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "invalid_bearer_token")
+			return
+		}
+		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (s Server) getIdentity(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication_required")
+		return
+	}
+	writeJSON(w, http.StatusOK, principal)
+}
+
+func (s Server) createAPIToken(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || s.auth == nil {
+		writeError(w, http.StatusUnauthorized, "authentication_required")
+		return
+	}
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	token, secret, err := s.auth.CreateToken(r.Context(), principal, payload.Name)
+	if err != nil {
+		if err.Error() == "token_name_required" || err.Error() == "token_name_too_long" {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, "token_creation_unavailable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "secret": secret})
+}
+
+func (s Server) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || s.auth == nil {
+		writeError(w, http.StatusUnauthorized, "authentication_required")
+		return
+	}
+	if err := s.auth.RevokeToken(r.Context(), principal, strings.TrimSpace(r.PathValue("token_id"))); err != nil {
+		writeError(w, http.StatusNotFound, "token_not_found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s Server) health(w http.ResponseWriter, r *http.Request) {
