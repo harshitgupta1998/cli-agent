@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 const (
 	IntentExecuteCommand = "execute_command"
 	IntentSearchHistory  = "search_history"
@@ -101,21 +103,49 @@ type MessageListResponse struct {
 	Messages []Message `json:"messages"`
 }
 
+type Workspace struct {
+	ID          string    `json:"id"`
+	OwnerUserID string    `json:"owner_user_id"`
+	Name        string    `json:"name"`
+	RootPath    string    `json:"root_path"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type WorkspaceCreateRequest struct {
+	Name     string `json:"name"`
+	RootPath string `json:"root_path"`
+}
+
+type WorkspaceUpdateRequest struct {
+	Name string `json:"name"`
+}
+
+type WorkspaceListResponse struct {
+	Workspaces []Workspace `json:"workspaces"`
+}
+
 type SessionCreateRequest struct {
-	CWD   string `json:"cwd"`
-	Shell string `json:"shell"`
+	CWD         string `json:"cwd"`
+	Shell       string `json:"shell"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	OwnerUserID string `json:"-"`
 }
 
 type SessionCreateResponse struct {
-	SessionID string `json:"session_id"`
-	ProjectID string `json:"project_id"`
-	StartedAt string `json:"started_at"`
+	SessionID   string `json:"session_id"`
+	ProjectID   string `json:"project_id"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	StartedAt   string `json:"started_at"`
 }
 
 type UserRequestCreate struct {
-	SessionID string `json:"session_id"`
-	Input     string `json:"input"`
-	CWD       string `json:"cwd"`
+	SessionID   string `json:"session_id"`
+	Input       string `json:"input"`
+	CWD         string `json:"cwd"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	OwnerUserID string `json:"-"`
 }
 
 type AlternativeCommand struct {
@@ -160,6 +190,8 @@ type CommandExecuteRequest struct {
 	Shell        string       `json:"shell,omitempty"`
 	RiskLevel    string       `json:"risk_level,omitempty"`
 	Confirmation Confirmation `json:"confirmation"`
+	WorkspaceID  string       `json:"workspace_id,omitempty"`
+	OwnerUserID  string       `json:"-"`
 }
 
 type CommandExecuteResponse struct {
@@ -187,6 +219,8 @@ type CommandRecordRequest struct {
 	Stdout          string `json:"stdout"`
 	Stderr          string `json:"stderr"`
 	DurationMS      int    `json:"duration_ms"`
+	WorkspaceID     string `json:"workspace_id,omitempty"`
+	OwnerUserID     string `json:"-"`
 }
 
 type CommandRecordResponse struct {
@@ -198,10 +232,12 @@ type CommandRecordResponse struct {
 }
 
 type MemorySearchRequest struct {
-	Query     string `json:"query"`
-	ProjectID string `json:"project_id,omitempty"`
-	CWD       string `json:"cwd,omitempty"`
-	Limit     int    `json:"limit"`
+	Query       string `json:"query"`
+	ProjectID   string `json:"project_id,omitempty"`
+	CWD         string `json:"cwd,omitempty"`
+	Limit       int    `json:"limit"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	OwnerUserID string `json:"-"`
 }
 
 type MemorySearchResult struct {
@@ -220,7 +256,9 @@ type MemorySearchResponse struct {
 }
 
 type EmbeddingBackfillRequest struct {
-	Limit int `json:"limit"`
+	Limit       int    `json:"limit"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	OwnerUserID string `json:"-"`
 }
 
 type EmbeddingBackfillResponse struct {

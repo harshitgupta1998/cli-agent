@@ -21,8 +21,15 @@ import (
 )
 
 type Agent interface {
+	CreateWorkspace(ownerUserID string, payload models.WorkspaceCreateRequest) (models.Workspace, error)
+	ListWorkspaces(ownerUserID string) models.WorkspaceListResponse
+	GetWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error)
+	UpdateWorkspace(ownerUserID string, workspaceID string, name string) (models.Workspace, error)
+	AdoptLegacyWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error)
+	ResolveWorkspace(ownerUserID string, workspaceID string, cwd string, create bool) (models.Workspace, error)
+	SessionWorkspace(ownerUserID string, sessionID string) (models.Workspace, error)
 	CreateSession(payload models.SessionCreateRequest) models.SessionCreateResponse
-	ListMessages(sessionID string) models.MessageListResponse
+	ListMessages(ownerUserID string, sessionID string) models.MessageListResponse
 	CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
 	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
 	ExecuteStream(ctx context.Context, payload models.CommandExecuteRequest, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse
@@ -30,11 +37,80 @@ type Agent interface {
 	SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse
 	BackfillCommandEmbeddings(payload models.EmbeddingBackfillRequest) models.EmbeddingBackfillResponse
 	Explain(command string) models.ExplainCommandResponse
-	ProjectContext(cwd string) models.ProjectContext
+	ProjectContext(ownerUserID string, workspaceID string, cwd string) models.ProjectContext
 	Phases() models.PhaseResponse
 	MockCapabilities() models.MockCapabilityResponse
 	VoiceConfig() models.VoiceConfigResponse
 	CreateVoiceTranscript(payload models.VoiceTranscriptRequest) models.VoiceTranscriptResponse
+}
+
+func (m AgentService) CreateWorkspace(ownerUserID string, payload models.WorkspaceCreateRequest) (models.Workspace, error) {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		return m.memory.CreateWorkspace(ctx, ownerUserID, payload.Name, payload.RootPath)
+	}
+	return models.Workspace{}, errors.New("workspace_storage_unavailable")
+}
+
+func (m AgentService) ListWorkspaces(ownerUserID string) models.WorkspaceListResponse {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		response, err := m.memory.ListWorkspaces(ctx, ownerUserID)
+		if err == nil {
+			return response
+		}
+	}
+	return models.WorkspaceListResponse{Workspaces: []models.Workspace{}}
+}
+
+func (m AgentService) GetWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error) {
+	if m.memory == nil {
+		return models.Workspace{}, memory.ErrWorkspaceNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.GetWorkspace(ctx, ownerUserID, workspaceID)
+}
+
+func (m AgentService) UpdateWorkspace(ownerUserID string, workspaceID string, name string) (models.Workspace, error) {
+	if m.memory == nil {
+		return models.Workspace{}, memory.ErrWorkspaceNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.UpdateWorkspace(ctx, ownerUserID, workspaceID, name)
+}
+
+func (m AgentService) AdoptLegacyWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error) {
+	if m.memory == nil {
+		return models.Workspace{}, memory.ErrWorkspaceNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return m.memory.AdoptLegacyWorkspace(ctx, ownerUserID, workspaceID)
+}
+
+func (m AgentService) ResolveWorkspace(ownerUserID string, workspaceID string, cwd string, create bool) (models.Workspace, error) {
+	if m.memory != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		return m.memory.ResolveWorkspace(ctx, ownerUserID, workspaceID, cwd, create)
+	}
+	if strings.TrimSpace(cwd) == "" {
+		return models.Workspace{}, memory.ErrWorkspaceNotFound
+	}
+	return models.Workspace{}, memory.ErrWorkspaceNotFound
+}
+
+func (m AgentService) SessionWorkspace(ownerUserID string, sessionID string) (models.Workspace, error) {
+	if m.memory == nil {
+		return models.Workspace{}, memory.ErrWorkspaceNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.SessionWorkspace(ctx, ownerUserID, sessionID)
 }
 
 type AgentService struct {
@@ -127,18 +203,19 @@ func (m AgentService) CreateSession(payload models.SessionCreateRequest) models.
 	}
 
 	return models.SessionCreateResponse{
-		SessionID: "ses_" + shortID(),
-		ProjectID: "prj_" + shortID(),
-		StartedAt: time.Now().UTC().Format(time.RFC3339),
+		SessionID:   "ses_" + shortID(),
+		ProjectID:   "prj_" + shortID(),
+		WorkspaceID: payload.WorkspaceID,
+		StartedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
-func (m AgentService) ListMessages(sessionID string) models.MessageListResponse {
+func (m AgentService) ListMessages(ownerUserID string, sessionID string) models.MessageListResponse {
 	if m.memory != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		response, err := m.memory.ListMessages(ctx, sessionID)
+		response, err := m.memory.ListMessages(ctx, ownerUserID, sessionID)
 		if err == nil {
 			return response
 		}
@@ -293,12 +370,12 @@ func (m AgentService) persistRequestMessages(payload models.UserRequestCreate, r
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_ = m.memory.RecordMessage(ctx, payload.SessionID, "user", payload.Input)
+	_ = m.memory.RecordMessage(ctx, payload.OwnerUserID, payload.SessionID, "user", payload.Input)
 	content, err := json.Marshal(response)
 	if err != nil {
 		return
 	}
-	_ = m.memory.RecordMessage(ctx, payload.SessionID, "assistant", string(content))
+	_ = m.memory.RecordMessage(ctx, payload.OwnerUserID, payload.SessionID, "assistant", string(content))
 }
 
 func (m AgentService) persistExecution(payload models.CommandExecuteRequest, response models.CommandExecuteResponse) models.CommandRecordResponse {
@@ -344,6 +421,8 @@ func (m AgentService) persistExecution(payload models.CommandExecuteRequest, res
 		Stdout:          summarize(response.Stdout),
 		Stderr:          summarize(response.Stderr),
 		DurationMS:      response.DurationMS,
+		WorkspaceID:     payload.WorkspaceID,
+		OwnerUserID:     payload.OwnerUserID,
 	})
 	if err != nil {
 		return models.CommandRecordResponse{}
@@ -417,17 +496,17 @@ func (m AgentService) Explain(command string) models.ExplainCommandResponse {
 	}
 }
 
-func (m AgentService) ProjectContext(cwd string) models.ProjectContext {
+func (m AgentService) ProjectContext(ownerUserID string, workspaceID string, cwd string) models.ProjectContext {
 	projectID := "prj_unknown"
 	commonCommands := []models.ProjectCommand{}
 	if m.memory != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		if id, err := m.memory.EnsureProject(ctx, cwd); err == nil {
+		if id, err := m.memory.EnsureProject(ctx, ownerUserID, workspaceID, cwd); err == nil {
 			projectID = id
 		}
-		commands, err := m.memory.ProjectCommands(ctx, cwd)
+		commands, err := m.memory.ProjectCommands(ctx, ownerUserID, workspaceID, cwd)
 		if err == nil {
 			commonCommands = commands
 		}
