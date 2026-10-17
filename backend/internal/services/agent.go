@@ -25,6 +25,7 @@ type Agent interface {
 	ListMessages(sessionID string) models.MessageListResponse
 	CreateRequest(payload models.UserRequestCreate) models.UserRequestResponse
 	Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse
+	ExecuteStream(ctx context.Context, payload models.CommandExecuteRequest, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse
 	RecordCommand(payload models.CommandRecordRequest) models.CommandRecordResponse
 	SearchMemory(payload models.MemorySearchRequest) models.MemorySearchResponse
 	BackfillCommandEmbeddings(payload models.EmbeddingBackfillRequest) models.EmbeddingBackfillResponse
@@ -37,14 +38,18 @@ type Agent interface {
 }
 
 type AgentService struct {
-	memory         memory.Store
-	planner        planner.Planner
-	commandTimeout time.Duration
-	voiceEnabled   bool
-	voiceProvider  string
-	voiceMaxSecs   int
-	voiceMaxBytes  int
-	transcriber    voice.Transcriber
+	memory          memory.Store
+	planner         planner.Planner
+	commandTimeout  time.Duration
+	executionRoots  []string
+	maxOutputBytes  int
+	envAllowlist    []string
+	commandExecutor executor.Executor
+	voiceEnabled    bool
+	voiceProvider   string
+	voiceMaxSecs    int
+	voiceMaxBytes   int
+	transcriber     voice.Transcriber
 }
 
 func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, commandTimeout time.Duration) AgentService {
@@ -52,12 +57,36 @@ func NewAgentService(memoryStore memory.Store, commandPlanner planner.Planner, c
 		memory:         memoryStore,
 		planner:        commandPlanner,
 		commandTimeout: commandTimeout,
+		executionRoots: []string{"/app"},
+		maxOutputBytes: 1024 * 1024,
+		envAllowlist:   []string{"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "GOPATH", "GOCACHE", "GOMODCACHE", "NPM_CONFIG_CACHE"},
 		voiceEnabled:   false,
 		voiceProvider:  "disabled",
 		voiceMaxSecs:   30,
 		voiceMaxBytes:  5 * 1024 * 1024,
 		transcriber:    voice.DisabledTranscriber{},
 	}
+}
+
+func (m AgentService) WithExecutionControls(allowedRoots []string, maxOutputBytes int, envAllowlist []string) AgentService {
+	if len(allowedRoots) > 0 {
+		m.executionRoots = append([]string(nil), allowedRoots...)
+	}
+	if maxOutputBytes > 0 {
+		m.maxOutputBytes = maxOutputBytes
+	}
+	if envAllowlist != nil {
+		m.envAllowlist = append([]string(nil), envAllowlist...)
+	}
+	m.commandExecutor = executor.NewRunner(m.commandTimeout, m.executionRoots, m.maxOutputBytes, m.envAllowlist)
+	return m
+}
+
+func (m AgentService) WithExecutor(commandExecutor executor.Executor) AgentService {
+	if commandExecutor != nil {
+		m.commandExecutor = commandExecutor
+	}
+	return m
 }
 
 func (m AgentService) WithVoiceConfig(enabled bool, provider string, maxSeconds int) AgentService {
@@ -161,6 +190,10 @@ func (m AgentService) CreateRequest(payload models.UserRequestCreate) models.Use
 }
 
 func (m AgentService) Execute(payload models.CommandExecuteRequest) models.CommandExecuteResponse {
+	return m.ExecuteStream(context.Background(), payload, nil)
+}
+
+func (m AgentService) ExecuteStream(ctx context.Context, payload models.CommandExecuteRequest, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse {
 	started := time.Now()
 	if payload.Confirmation.Status == models.ConfirmationRejected {
 		return models.CommandExecuteResponse{
@@ -191,7 +224,11 @@ func (m AgentService) Execute(payload models.CommandExecuteRequest) models.Comma
 		return response
 	}
 
-	response := executor.NewRunner(m.commandTimeout).Run(context.Background(), command, payload.CWD)
+	commandExecutor := m.commandExecutor
+	if commandExecutor == nil {
+		commandExecutor = executor.NewRunner(m.commandTimeout, m.executionRoots, m.maxOutputBytes, m.envAllowlist)
+	}
+	response := commandExecutor.RunWithOutput(ctx, command, payload.CWD, onOutput)
 	response.CommandEventID = "cmd_" + shortID()
 	if record := m.persistExecution(payload, response); record.CommandEventID != "" {
 		response.CommandEventID = record.CommandEventID

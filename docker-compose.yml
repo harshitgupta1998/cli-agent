@@ -4,7 +4,7 @@ services:
       context: ./frontend
     container_name: termind-frontend
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       VITE_API_BASE_URL: http://localhost:8000
     depends_on:
@@ -18,7 +18,7 @@ services:
       context: ./backend
     container_name: termind-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://termind:termind@database:5432/termind?sslmode=disable}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -26,6 +26,10 @@ services:
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       PLANNER_MODE: ${PLANNER_MODE:-ollama}
       COMMAND_TIMEOUT_SECONDS: ${COMMAND_TIMEOUT_SECONDS:-30}
+      COMMAND_MAX_OUTPUT_BYTES: ${COMMAND_MAX_OUTPUT_BYTES:-1048576}
+      EXECUTION_ALLOWED_ROOTS: ${EXECUTION_ALLOWED_ROOTS:-/app}
+      EXECUTION_ENV_ALLOWLIST: ${EXECUTION_ENV_ALLOWLIST:-PATH,HOME,LANG,LC_ALL,TERM,TMPDIR,GOPATH,GOCACHE,GOMODCACHE,NPM_CONFIG_CACHE}
+      EXECUTOR_SOCKET_PATH: /run/termind/executor.sock
       LOCAL_ONLY_MODE: ${LOCAL_ONLY_MODE:-true}
       VOICE_INPUT_ENABLED: ${VOICE_INPUT_ENABLED:-false}
       VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-disabled}
@@ -41,16 +45,60 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      executor:
+        condition: service_healthy
     volumes:
       - ./backend:/app
       - whisper-models:/models/whisper
+      - executor-socket:/run/termind
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2.0
+
+  executor:
+    build:
+      context: ./backend
+    container_name: termind-executor
+    command: ["termind-executor-worker"]
+    environment:
+      COMMAND_TIMEOUT_SECONDS: ${COMMAND_TIMEOUT_SECONDS:-30}
+      COMMAND_MAX_OUTPUT_BYTES: ${COMMAND_MAX_OUTPUT_BYTES:-1048576}
+      EXECUTION_ALLOWED_ROOTS: ${EXECUTION_ALLOWED_ROOTS:-/app}
+      EXECUTION_ENV_ALLOWLIST: ${EXECUTION_ENV_ALLOWLIST:-PATH,HOME,LANG,LC_ALL,TERM,TMPDIR,GOPATH,GOCACHE,GOMODCACHE,NPM_CONFIG_CACHE}
+      EXECUTOR_SOCKET_PATH: /run/termind/executor.sock
+      HOME: /tmp
+      TMPDIR: /tmp
+      GOCACHE: /tmp/go-build
+    volumes:
+      - ./backend:/app
+      - executor-socket:/run/termind
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/termind/executor.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
 
   database:
     image: postgres:16-alpine
     container_name: termind-database
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-termind}
       POSTGRES_USER: ${POSTGRES_USER:-termind}
@@ -67,3 +115,4 @@ services:
 volumes:
   postgres-data:
   whisper-models:
+  executor-socket:

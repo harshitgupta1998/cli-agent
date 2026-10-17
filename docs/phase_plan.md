@@ -64,16 +64,21 @@ Implemented shape:
 - `POST /v1/commands/execute` requires explicit approval before running.
 - The backend runs commands with `sh -c` from the requested `cwd`.
 - Process execution is isolated in `internal/executor` and policy checks live in `internal/policy`.
-- The executor captures stdout, stderr, exit code, and duration.
+- The executor streams stdout/stderr to SSE clients and keeps JSON responses for other clients.
+- Disconnecting an SSE request cancels the process group.
+- Captured output is bounded by `COMMAND_MAX_OUTPUT_BYTES`.
+- Working directories are limited by `EXECUTION_ALLOWED_ROOTS`, and child environment variables are filtered by `EXECUTION_ENV_ALLOWLIST`.
 - `COMMAND_TIMEOUT_SECONDS` bounds command runtime.
 - Destructive and privileged patterns are blocked before execution.
+- Docker Compose runs commands in a separate network-isolated worker with a read-only root filesystem and a writable project mount.
+- The worker drops Linux capabilities, prevents privilege escalation, and has CPU, memory, and process limits.
 - Execution events are persisted to Postgres when available.
 
 Remaining work:
 
-- stream output and allow cancellation while a command runs
-- add stronger process and filesystem isolation with configurable permissions
-- treat the current command denylist and timeout as local prototype safeguards, not a production sandbox
+- add authentication and workspace ownership before remote or multi-user deployment
+- add per-workspace command permissions and a stronger approval policy
+- approved commands can modify the configured workspace; this local product does not yet support untrusted multi-user execution
 
 ## Phase 4: Persistent Memory
 

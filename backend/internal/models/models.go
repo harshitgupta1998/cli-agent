@@ -17,7 +17,13 @@ const (
 	CommandStatusRejected  = "rejected"
 	CommandStatusBlocked   = "blocked"
 	CommandStatusFailed    = "failed"
+	CommandStatusCancelled = "cancelled"
 )
+
+type CommandOutputChunk struct {
+	Stream string `json:"stream"`
+	Data   string `json:"data"`
+}
 
 type PhaseStatus string
 

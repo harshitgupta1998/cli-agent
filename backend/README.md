@@ -8,7 +8,8 @@ Implemented backend capabilities:
 
 - Ollama-backed command planning with rule fallback
 - deterministic policy review and out-of-scope request gating
-- approved command execution with timeout and blocking
+- approved command execution with streaming output, cancellation, timeout, and policy blocking
+- a network-isolated Docker worker with configured working-directory roots, child environment allowlists, and bounded output capture
 - Postgres-backed sessions, projects, messages, command events, and learned project commands
 - Ollama-backed command-event embeddings, backfill, semantic search, and hybrid memory ranking
 - hardened voice transcript API and runtime configuration
@@ -20,7 +21,21 @@ Implemented backend capabilities:
 ## Run
 
 ```bash
-go run ./cmd/server
+cd ..
+docker compose up --build
+```
+
+For direct local API execution without Docker, start the worker in one terminal. Both processes must use the same socket path and allowed workspace root:
+
+```bash
+cd backend
+EXECUTOR_SOCKET_PATH=/tmp/termind-executor.sock EXECUTION_ALLOWED_ROOTS="$PWD" go run ./cmd/executor-worker
+```
+
+Then start the API in another terminal from `backend/`:
+
+```bash
+EXECUTOR_SOCKET_PATH=/tmp/termind-executor.sock EXECUTION_ALLOWED_ROOTS="$PWD" go run ./cmd/server
 ```
 
 ## CLI
@@ -56,6 +71,9 @@ OLLAMA_MODEL=llama3.2:3b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 PLANNER_MODE=ollama
 COMMAND_TIMEOUT_SECONDS=30
+COMMAND_MAX_OUTPUT_BYTES=1048576
+EXECUTION_ALLOWED_ROOTS=/app
+EXECUTION_ENV_ALLOWLIST=PATH,HOME,LANG,LC_ALL,TERM,TMPDIR,GOPATH,GOCACHE,GOMODCACHE,NPM_CONFIG_CACHE
 VOICE_INPUT_ENABLED=false
 VOICE_STT_PROVIDER=disabled
 VOICE_STT_COMMAND=
@@ -67,9 +85,9 @@ VOICE_MAX_AUDIO_BYTES=5242880
 
 ## Safe Execution
 
-`POST /v1/commands/execute` runs approved commands through `internal/executor`. It captures stdout, stderr, exit code, and duration, applies a small destructive-command denylist through `internal/policy`, and records command events to Postgres when the store is available.
+`POST /v1/commands/execute` runs approved commands through `internal/executor`. Clients that request `Accept: text/event-stream` receive stdout/stderr chunks followed by a final result event; disconnecting the request cancels the process group. Other clients receive the existing JSON response. The runner enforces `COMMAND_TIMEOUT_SECONDS`, `COMMAND_MAX_OUTPUT_BYTES`, `EXECUTION_ALLOWED_ROOTS`, and `EXECUTION_ENV_ALLOWLIST`, applies deterministic blocking through `internal/policy`, and records command events to Postgres when the store is available.
 
-When the API is running in Docker, commands execute inside the backend container. Use `/app` as the frontend/default CWD for container execution. The CLI path is different: it gets plans from the API, then executes approved commands on the host from the directory where `termind` was launched.
+When the API is running in Docker, commands execute in a separate worker container with no network, a read-only container filesystem, and `/app` mounted as the writable project workspace. The host CLI path is different: it gets plans from the API, then executes approved commands on the host from the directory where `termind` was launched. The writable workspace is shared with approved commands; authentication and multi-user isolation are not implemented.
 
 ## Test
 
@@ -93,10 +111,11 @@ go test ./cmd/termind -run TestVoiceAudioWrapperPlansExecutesAndRecordsTranscrip
 ## Current Packages
 
 ```text
-cmd/server          process entrypoint
+cmd/server          API process entrypoint
+cmd/executor-worker isolated command worker entrypoint
 internal/api        HTTP routing, CORS, validation, JSON helpers
 internal/config     environment configuration
-internal/executor   backend process runner with timeout and output capture
+internal/executor   command runner, SSE streaming, and private Unix-socket worker client
 internal/models     request/response contracts
 internal/policy     deterministic command risk evaluation and execution blocking
 internal/planner    Ollama and rule planners
@@ -177,8 +196,7 @@ printf 'fake audio' > /tmp/termind-request.wav
 
 Next implementation priorities:
 
-- stream executor output and support cancellation
-- strengthen workspace isolation and configurable command/environment permissions
 - add authentication, workspace ownership, and audit retention before multi-user deployment
+- add per-workspace command permissions and a stronger approval policy
 - add live microphone input and cross-platform STT packaging for the host CLI
 - expand project-specific context detection and memory management

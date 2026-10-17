@@ -9,6 +9,7 @@ This repository starts as a dockerized product template with:
 - Postgres database
 - Ollama-backed command planning
 - Controlled backend command execution
+- Streaming command output with cancellation
 - Postgres command-event memory
 - Persistent sessions, projects, messages, and learned project commands
 - Local semantic recall with Ollama embeddings
@@ -21,7 +22,7 @@ Implemented:
 
 - Phase 1: command workbench and API contracts
 - Phase 2: local Ollama command planning with rule fallback
-- Phase 3: safe backend execution with timeout, output capture, blocking, and audit records
+- Phase 3: isolated execution worker with streaming, cancellation, output limits, policy checks, and audit records
 - Phase 4: persistent sessions, projects, messages, command events, and learned project commands
 - Phase 5.1: embedding model config and Ollama embedding client
 - Phase 5.2: embeddings for new command events
@@ -36,10 +37,8 @@ Implemented:
 - Phase 6.5: route confirmed transcripts through planning and policy
 - Phase 6.6: host CLI voice command wrapper
 
-Next development priorities:
+Remaining development priorities:
 
-- Add live output streaming and command cancellation to the backend executor.
-- Strengthen command execution isolation and permission controls before exposing it beyond a trusted local setup.
 - Add user/workspace authentication and configurable audit retention for multi-user deployments.
 - Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
 - Extend project context detection and tune semantic recall using real usage.
@@ -62,6 +61,7 @@ Open:
 ```text
 frontend  React/Vite product UI
 backend   Go application API
+executor  network-isolated worker for approved command processes
 database  Postgres schema, learned at runtime
 ```
 
@@ -87,13 +87,15 @@ POST /v1/commands/explain
 GET  /v1/context/project
 ```
 
+`POST /v1/commands/execute` returns JSON by default. Send `Accept: text/event-stream` for `output` events followed by a `complete` event. Closing the request cancels the worker process group.
+
 ## Architecture Snapshot
 
 ```text
 React frontend ─┐
                 ├─> Go API ─> Ollama on host
 Host CLI ───────┘        ├─> Postgres
-                         └─> backend container shell execution
+                         └─> private Unix socket ─> isolated executor container
 
 Host CLI execution path:
 Host CLI ─> Go API for planning/policy ─> local host shell ─> Go API record endpoint
@@ -255,8 +257,23 @@ Phase 3 runs approved commands through the Go backend:
 - runs with `sh -c` from the requested `cwd`
 - delegates process execution to `backend/internal/executor` and risk checks to `backend/internal/policy`
 - captures stdout, stderr, exit code, and duration
-- blocks destructive or privileged patterns such as `rm -rf`, `git reset --hard`, `docker system prune`, and `sudo`
+- streams output to the frontend and terminates the command process group when cancelled
+- restricts working directories to `EXECUTION_ALLOWED_ROOTS`, filters inherited child-process environment variables, and caps captured output
+- blocks known destructive or privileged patterns such as `rm -rf`, `git reset --hard`, `docker system prune`, and `sudo`
 - records execution events into Postgres when available
+
+Docker Compose publishes frontend, backend, and Postgres ports on loopback. The executor has no network, a read-only container filesystem, a writable project mount, no Linux capabilities, no privilege escalation, and CPU, memory, process, timeout, and output limits. The project mount remains writable by approved commands, so review commands before approval and do not expose this local prototype to untrusted users.
+
+To inspect the stream manually, run this in a terminal and press Ctrl+C to cancel:
+
+```bash
+curl -N http://localhost:8000/v1/commands/execute \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  --data-binary '{"command":"for i in 1 2 3 4 5 6; do echo tick-$i; sleep 1; done","cwd":"/app","confirmation":{"status":"approved"}}'
+```
+
+The response emits `output` events as text arrives and a `complete` event when the command ends. Closing the request cancels the process group.
 
 ## Phase Plan
 
@@ -314,8 +331,8 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 3. Backend uses Ollama for a structured command plan, with rule fallback.
 4. Backend applies deterministic policy and risk checks.
 5. User approves or rejects the proposed command.
-6. Frontend calls `POST /v1/commands/execute` to run inside the backend container, or the CLI runs locally on the user's machine.
-7. Execution captures stdout, stderr, exit code, and duration.
+6. Frontend calls `POST /v1/commands/execute` and streams output from the backend container; the CLI runs locally on the user's machine.
+7. Execution reports stdout, stderr, exit code, duration, and final status.
 8. Command events are persisted to Postgres and become searchable.
 9. Sessions, projects, and user/assistant messages are persisted to Postgres.
 10. Successful commands are learned as project common commands.
@@ -324,10 +341,9 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 13. New command events are embedded with Ollama when the embedding model is available.
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
-## Next Development Steps
+## Remaining Product Work
 
-- **Execution UX:** stream stdout/stderr while a command runs and let the user cancel it.
-- **Execution safety:** isolate processes to approved workspaces and add configurable command/environment permissions. The current denylist and timeout are prototype safeguards, not a production sandbox.
-- **Multi-user product:** add authentication, workspace ownership, and audit retention controls.
+- **Execution permissions:** add per-workspace command permissions and a stronger approval policy.
+- **Multi-user product:** add authentication, workspace ownership, and audit retention controls before remote or team deployment.
 - **Voice and context:** make host CLI speech-to-text setup cross-platform, add live microphone input, and expand project-specific command detection.
 - **Quality:** tune planner and semantic recall against representative user traces, with health checks and useful diagnostics.

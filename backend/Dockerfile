@@ -16,6 +16,7 @@ RUN go mod download
 COPY . .
 
 RUN go build -o /usr/local/bin/termind-api ./cmd/server
+RUN go build -o /usr/local/bin/termind-executor-worker ./cmd/executor-worker
 
 ENV TERMIND_STT_MODEL=tiny.en
 ENV TERMIND_STT_MODEL_DIR=/models/whisper

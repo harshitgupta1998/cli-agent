@@ -9,6 +9,7 @@ import (
 	"github.com/harsgupta/termind/backend/internal/api"
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/embeddings"
+	"github.com/harsgupta/termind/backend/internal/executor"
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/planner"
 	"github.com/harsgupta/termind/backend/internal/services"
@@ -42,6 +43,8 @@ func main() {
 	}
 
 	agent := services.NewAgentService(store, commandPlanner, cfg.CommandTimeout)
+	agent = agent.WithExecutionControls(cfg.ExecutionAllowedRoots, cfg.CommandMaxOutputBytes, cfg.ExecutionEnvAllowlist)
+	agent = agent.WithExecutor(executor.NewUnixClient(cfg.ExecutorSocketPath))
 	agent = agent.WithVoiceConfig(cfg.VoiceEnabled == "true", cfg.VoiceSTTProvider, cfg.VoiceMaxSeconds)
 	agent = agent.WithVoiceMaxBytes(cfg.VoiceMaxBytes)
 	if cfg.VoiceSTTProvider == "command" {
