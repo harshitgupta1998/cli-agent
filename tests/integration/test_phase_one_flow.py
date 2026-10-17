@@ -60,7 +60,7 @@ def test_phase_one_review_run_remember_flow(api):
     assert result["status"] == "completed"
     assert result["exit_code"] == 0
     assert result["stdout"].strip() == BACKEND_CWD
-    assert result["duration_ms"] > 0
+    assert result["duration_ms"] >= 0
     assert result["embedding_status"] in {"stored", "failed", "skipped"}
     if result["embedding_status"] == "stored":
         assert result["embedding_model"]

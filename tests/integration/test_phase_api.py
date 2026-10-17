@@ -5,7 +5,7 @@ def test_health_reports_go_runtime(api):
     assert payload == {"runtime": "go", "status": "ok"}
 
 
-def test_config_reports_mock_go_backend(api):
+def test_config_reports_go_backend_and_voice_settings(api):
     status, payload = api.get("/v1/config")
 
     assert status == 200
@@ -17,9 +17,13 @@ def test_config_reports_mock_go_backend(api):
     assert payload["ollama_embed_model"]
     assert payload["command_timeout_seconds"] > 0
     assert payload["local_only_mode"] is True
-    assert payload["voice_input_enabled"] is False
-    assert payload["voice_stt_provider"] == "disabled"
-    assert payload["voice_stt_command"] is False
+    assert isinstance(payload["voice_input_enabled"], bool)
+    if payload["voice_input_enabled"]:
+        assert payload["voice_stt_provider"] != "disabled"
+        assert payload["voice_stt_command"] is (payload["voice_stt_provider"] == "command")
+    else:
+        assert payload["voice_stt_provider"] == "disabled"
+        assert payload["voice_stt_command"] is False
     assert payload["voice_max_audio_seconds"] > 0
     assert payload["voice_max_audio_bytes"] > 0
 
@@ -96,18 +100,20 @@ def test_embedding_backfill_accepts_default_limit(api):
 
 def test_voice_config_contract_is_available(api):
     status, payload = api.get("/v1/voice/config")
+    runtime_status, runtime = api.get("/v1/config")
 
     assert status == 200
-    assert payload["enabled"] is False
-    assert payload["stt_provider"] == "disabled"
+    assert runtime_status == 200
+    assert payload["enabled"] is runtime["voice_input_enabled"]
+    assert payload["stt_provider"] == runtime["voice_stt_provider"]
     assert payload["max_audio_seconds"] > 0
     assert payload["max_audio_bytes"] > 0
     assert "audio/wav" in payload["accepted_mime_types"]
     assert payload["transcript_endpoint"] == "/v1/voice/transcripts"
-    assert payload["status"] == "planned"
+    assert payload["status"] == ("configured" if payload["enabled"] else "planned")
 
 
-def test_voice_transcript_placeholder_keeps_pipeline_contract(api):
+def test_voice_transcript_respects_configured_provider_contract(api):
     status, payload = api.post(
         "/v1/voice/transcripts",
         {
@@ -117,8 +123,15 @@ def test_voice_transcript_placeholder_keeps_pipeline_contract(api):
         },
     )
 
-    assert status == 501
-    assert payload["status"] == "not_implemented"
+    config_status, config = api.get("/v1/voice/config")
+    assert config_status == 200
+    if config["enabled"]:
+        assert status == 400
+        assert payload["status"] == "invalid_audio"
+        assert payload["stt_provider"] == config["stt_provider"]
+    else:
+        assert status == 501
+        assert payload["status"] == "not_implemented"
     assert payload["transcript"] == ""
     assert payload["requires_edit"] is True
     assert payload["next_endpoint"] == "/v1/requests"
