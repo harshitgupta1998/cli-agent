@@ -11,8 +11,9 @@ Implemented backend capabilities:
 - approved command execution with timeout and blocking
 - Postgres-backed sessions, projects, messages, command events, and learned project commands
 - Ollama-backed command-event embeddings, backfill, semantic search, and hybrid memory ranking
-- voice runtime config and placeholder transcript contracts
+- hardened voice transcript API and runtime configuration
 - command-based local speech-to-text adapter for `VOICE_STT_PROVIDER=command`
+- optional bundled `faster-whisper` adapter for local transcription in Docker
 - confirmed voice transcripts route through the same planning and policy path as typed prompts
 - CLI audio-file voice wrapper through `termind -voice-audio`
 
@@ -174,9 +175,10 @@ printf 'fake audio' > /tmp/termind-request.wav
 ../bin/termind -yes -voice-audio /tmp/termind-request.wav
 ```
 
-The next real implementation layers should be:
+Next implementation priorities:
 
-- streaming and cancellation around `internal/executor`
-- expanded `internal/memory` queries and cleanup tools
-- richer `internal/context` detection from manifests and package scripts
-- production STT packaging and cross-platform live CLI recording
+- stream executor output and support cancellation
+- strengthen workspace isolation and configurable command/environment permissions
+- add authentication, workspace ownership, and audit retention before multi-user deployment
+- add live microphone input and cross-platform STT packaging for the host CLI
+- expand project-specific context detection and memory management

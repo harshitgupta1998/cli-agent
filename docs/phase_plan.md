@@ -63,10 +63,17 @@ Implemented shape:
 
 - `POST /v1/commands/execute` requires explicit approval before running.
 - The backend runs commands with `sh -c` from the requested `cwd`.
+- Process execution is isolated in `internal/executor` and policy checks live in `internal/policy`.
 - The executor captures stdout, stderr, exit code, and duration.
 - `COMMAND_TIMEOUT_SECONDS` bounds command runtime.
 - Destructive and privileged patterns are blocked before execution.
 - Execution events are persisted to Postgres when available.
+
+Remaining work:
+
+- stream output and allow cancellation while a command runs
+- add stronger process and filesystem isolation with configurable permissions
+- treat the current command denylist and timeout as local prototype safeguards, not a production sandbox
 
 ## Phase 4: Persistent Memory
 
@@ -84,7 +91,6 @@ Implemented shape:
 
 Future refinements:
 
-- add streaming and cancellation to the executor package
 - memory pruning controls
 
 ## Phase 5: Semantic Recall

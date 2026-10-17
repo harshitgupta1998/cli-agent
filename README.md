@@ -36,9 +36,13 @@ Implemented:
 - Phase 6.5: route confirmed transcripts through planning and policy
 - Phase 6.6: host CLI voice command wrapper
 
-Next:
+Next development priorities:
 
-- Production STT setup, executor streaming/cancellation, and richer project context detection
+- Add live output streaming and command cancellation to the backend executor.
+- Strengthen command execution isolation and permission controls before exposing it beyond a trusted local setup.
+- Add user/workspace authentication and configurable audit retention for multi-user deployments.
+- Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
+- Extend project context detection and tune semantic recall using real usage.
 
 ## Run Locally
 
@@ -249,6 +253,7 @@ Phase 3 runs approved commands through the Go backend:
 
 - requires `confirmation.status=approved`
 - runs with `sh -c` from the requested `cwd`
+- delegates process execution to `backend/internal/executor` and risk checks to `backend/internal/policy`
 - captures stdout, stderr, exit code, and duration
 - blocks destructive or privileged patterns such as `rm -rf`, `git reset --hard`, `docker system prune`, and `sudo`
 - records execution events into Postgres when available
@@ -315,14 +320,14 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 9. Sessions, projects, and user/assistant messages are persisted to Postgres.
 10. Successful commands are learned as project common commands.
 11. Project context detects git state and stack hints when available.
-12. New command events are embedded with Ollama.
-13. Memory search blends keyword, semantic, directory, success, and recency signals.
-12. New command events are embedded locally with Ollama when the embedding model is available.
-
+12. Memory search blends keyword, semantic, directory, success, and recency signals.
+13. New command events are embedded with Ollama when the embedding model is available.
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
 ## Next Development Steps
 
-- Add streaming output and cancellation to the backend executor.
-- Improve local STT packaging and cross-platform live CLI recording.
-- Add production hardening around auth, workspace trust, and audit retention.
+- **Execution UX:** stream stdout/stderr while a command runs and let the user cancel it.
+- **Execution safety:** isolate processes to approved workspaces and add configurable command/environment permissions. The current denylist and timeout are prototype safeguards, not a production sandbox.
+- **Multi-user product:** add authentication, workspace ownership, and audit retention controls.
+- **Voice and context:** make host CLI speech-to-text setup cross-platform, add live microphone input, and expand project-specific command detection.
+- **Quality:** tune planner and semantic recall against representative user traces, with health checks and useful diagnostics.
