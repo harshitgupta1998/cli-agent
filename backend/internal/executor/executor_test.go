@@ -80,6 +80,18 @@ func TestRunnerStreamsOutputAndBoundsCapture(t *testing.T) {
 	}
 }
 
+func TestRunnerHonorsStricterPerExecutionOutputLimit(t *testing.T) {
+	dir := t.TempDir()
+	runner := NewRunner(5*time.Second, []string{dir}, 4096, []string{"PATH"}).(Runner)
+	response := runner.RunWithLimits(context.Background(), "printf '%02000d' 0", dir, 2*time.Second, 1024, nil)
+	if response.Status != models.CommandStatusCompleted {
+		t.Fatalf("Status = %q, want completed; stderr=%s", response.Status, response.Stderr)
+	}
+	if len(response.Stdout) != 1024 {
+		t.Fatalf("captured stdout bytes = %d, want 1024", len(response.Stdout))
+	}
+}
+
 func TestRunnerCancellationKillsCommand(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())

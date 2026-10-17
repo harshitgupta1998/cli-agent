@@ -28,6 +28,9 @@ class APIClient:
     def patch(self, path: str, payload: dict) -> tuple[int, dict]:
         return self._request("PATCH", f"{self.base_url}{path}", payload)
 
+    def put(self, path: str, payload: dict) -> tuple[int, dict]:
+        return self._request("PUT", f"{self.base_url}{path}", payload)
+
     def _request(self, method: str, url: str, payload: dict | None = None) -> tuple[int, dict]:
         body = None
         headers = {"Accept": "application/json"}

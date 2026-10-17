@@ -122,3 +122,26 @@ func TestLocalModeAllowsAnonymousLegacyRequests(t *testing.T) {
 		t.Fatalf("local anonymous config status = %d, want 200", response.Code)
 	}
 }
+
+func TestApprovalTokenBindsCommandAndWorkspace(t *testing.T) {
+	server := NewServer(config.Config{}, services.NewAgentService(nil, planner.NewRulePlanner(), time.Second))
+	claims := approvalClaims{
+		ApprovalID:    "apr_test",
+		PolicyVersion: 1,
+		UserID:        "usr_a", SessionID: "ses_a", WorkspaceID: "wsp_a", RequestID: "req_a",
+		Command: "go test ./...", CWD: "/workspace", ExpiresAt: time.Now().Add(time.Minute).Unix(),
+	}
+	token := server.issueApprovalToken(claims)
+	if !server.verifyApprovalToken(token, claims) {
+		t.Fatal("valid approval token rejected")
+	}
+	claims.Command = "rm -rf ."
+	if server.verifyApprovalToken(token, claims) {
+		t.Fatal("approval token accepted a changed command")
+	}
+	claims.Command = "go test ./..."
+	claims.WorkspaceID = "wsp_other"
+	if server.verifyApprovalToken(token, claims) {
+		t.Fatal("approval token accepted a different workspace")
+	}
+}

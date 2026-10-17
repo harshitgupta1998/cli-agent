@@ -126,6 +126,27 @@ type WorkspaceListResponse struct {
 	Workspaces []Workspace `json:"workspaces"`
 }
 
+type WorkspacePermissions struct {
+	WorkspaceID        string    `json:"workspace_id"`
+	PolicyVersion      int       `json:"policy_version"`
+	ExecutionMode      string    `json:"execution_mode"`
+	WritableRoots      []string  `json:"writable_roots"`
+	AllowedCommands    []string  `json:"allowed_commands"`
+	DeniedCommands     []string  `json:"denied_commands"`
+	MaxDurationSeconds int       `json:"max_duration_seconds"`
+	MaxOutputBytes     int       `json:"max_output_bytes"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type WorkspacePermissionsUpdate struct {
+	ExecutionMode      string   `json:"execution_mode"`
+	WritableRoots      []string `json:"writable_roots"`
+	AllowedCommands    []string `json:"allowed_commands"`
+	DeniedCommands     []string `json:"denied_commands"`
+	MaxDurationSeconds int      `json:"max_duration_seconds"`
+	MaxOutputBytes     int      `json:"max_output_bytes"`
+}
+
 type SessionCreateRequest struct {
 	CWD         string `json:"cwd"`
 	Shell       string `json:"shell"`
@@ -170,10 +191,11 @@ type PolicyDecision struct {
 }
 
 type UserRequestResponse struct {
-	RequestID string         `json:"request_id"`
-	Intent    string         `json:"intent"`
-	Plan      CommandPlan    `json:"plan"`
-	Policy    PolicyDecision `json:"policy"`
+	RequestID     string         `json:"request_id"`
+	Intent        string         `json:"intent"`
+	Plan          CommandPlan    `json:"plan"`
+	Policy        PolicyDecision `json:"policy"`
+	ApprovalToken string         `json:"approval_token,omitempty"`
 }
 
 type Confirmation struct {
@@ -182,16 +204,21 @@ type Confirmation struct {
 }
 
 type CommandExecuteRequest struct {
-	SessionID    string       `json:"session_id"`
-	RequestID    string       `json:"request_id"`
-	UserRequest  string       `json:"user_request,omitempty"`
-	Command      string       `json:"command"`
-	CWD          string       `json:"cwd"`
-	Shell        string       `json:"shell,omitempty"`
-	RiskLevel    string       `json:"risk_level,omitempty"`
-	Confirmation Confirmation `json:"confirmation"`
-	WorkspaceID  string       `json:"workspace_id,omitempty"`
-	OwnerUserID  string       `json:"-"`
+	SessionID               string       `json:"session_id"`
+	RequestID               string       `json:"request_id"`
+	UserRequest             string       `json:"user_request,omitempty"`
+	Command                 string       `json:"command"`
+	CWD                     string       `json:"cwd"`
+	Shell                   string       `json:"shell,omitempty"`
+	RiskLevel               string       `json:"risk_level,omitempty"`
+	Confirmation            Confirmation `json:"confirmation"`
+	WorkspaceID             string       `json:"workspace_id,omitempty"`
+	ApprovalToken           string       `json:"approval_token,omitempty"`
+	ExecutionTimeoutSeconds int          `json:"-"`
+	MaxOutputBytes          int          `json:"-"`
+	WorkspacePolicyVersion  int          `json:"-"`
+	WorkspacePolicyDecision string       `json:"-"`
+	OwnerUserID             string       `json:"-"`
 }
 
 type CommandExecuteResponse struct {
@@ -206,21 +233,23 @@ type CommandExecuteResponse struct {
 }
 
 type CommandRecordRequest struct {
-	SessionID       string `json:"session_id"`
-	RequestID       string `json:"request_id"`
-	UserRequest     string `json:"user_request"`
-	ProposedCommand string `json:"proposed_command"`
-	FinalCommand    string `json:"final_command"`
-	CWD             string `json:"cwd"`
-	Shell           string `json:"shell"`
-	RiskLevel       string `json:"risk_level"`
-	Confirmation    string `json:"confirmation"`
-	ExitCode        int    `json:"exit_code"`
-	Stdout          string `json:"stdout"`
-	Stderr          string `json:"stderr"`
-	DurationMS      int    `json:"duration_ms"`
-	WorkspaceID     string `json:"workspace_id,omitempty"`
-	OwnerUserID     string `json:"-"`
+	SessionID               string `json:"session_id"`
+	RequestID               string `json:"request_id"`
+	UserRequest             string `json:"user_request"`
+	ProposedCommand         string `json:"proposed_command"`
+	FinalCommand            string `json:"final_command"`
+	CWD                     string `json:"cwd"`
+	Shell                   string `json:"shell"`
+	RiskLevel               string `json:"risk_level"`
+	Confirmation            string `json:"confirmation"`
+	ExitCode                int    `json:"exit_code"`
+	Stdout                  string `json:"stdout"`
+	Stderr                  string `json:"stderr"`
+	DurationMS              int    `json:"duration_ms"`
+	WorkspaceID             string `json:"workspace_id,omitempty"`
+	WorkspacePolicyVersion  int    `json:"-"`
+	WorkspacePolicyDecision string `json:"-"`
+	OwnerUserID             string `json:"-"`
 }
 
 type CommandRecordResponse struct {

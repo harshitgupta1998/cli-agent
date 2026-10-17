@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the security contract for authentication and workspace permissions. S1 (the contract), S2 (single-principal bearer authentication and token lifecycle), S3.1 (workspace schema/backfill), and S3.2 (workspace-scoped persistence and API access) are implemented. Workspace command permissions and authenticated client integration are still pending, so Termind must not be treated as ready for remote or multi-user use.
+This document defines the security contract for authentication and workspace permissions. S1-S4 are implemented: bearer identity, owner-scoped workspace data, typed workspace permission settings, server-side enforcement, and one-time command approval grants. Authenticated CLI/frontend credential and workspace selection flows remain before remote or multi-user use should be considered ready.
 
 ## Deployment modes
 
@@ -26,6 +26,9 @@ This document defines the security contract for authentication and workspace per
 - Existing local data must be migrated explicitly and recoverably. Migration must not silently make existing data visible to a newly created remote user.
 - The S3.1 migration assigns pre-existing rows only to the reserved `usr_legacy_local` owner, not to the configured bootstrap identity. Before upgrading an existing deployment, take a Postgres backup. A local/authenticated user can explicitly transfer a legacy workspace and its sessions, events, and preferences with `POST /v1/workspaces/{workspace_id}/adopt`; the server derives the new owner from the authenticated principal. Adoption returns `409` if that user already has the same canonical root.
 - Workspace paths are canonicalized and checked after symlink resolution. The executor receives only a server-resolved workspace root and a working directory beneath it.
+- Execution settings are owner-controlled and versioned. `confirmation_required` allows commands through the existing safety baseline only after explicit approval; `restricted_safe_autocommand` additionally requires a listed executable and rejects shell composition/operators. `disabled` denies execution. Denied executables take precedence.
+- Writable roots are relative to the canonical workspace root; an empty list means the workspace root. Runtime and output limits are clamped to the server's global executor limits. Unknown or malformed settings fail closed.
+- Remote plans receive a short-lived signed approval token, bound to the authenticated user, session, workspace, request, exact command, and working directory. The grant is stored in Postgres and consumed atomically once before process creation. Remote mode requires a stable `COMMAND_APPROVAL_SECRET` of at least 32 characters.
 
 ## Command authorization
 
@@ -38,18 +41,18 @@ For each execution, the backend must validate, in order:
 5. Required user confirmation is valid and applies to this exact command, workspace, and request; changing any of these invalidates the approval.
 6. The isolated executor accepts the resolved execution request and records the decision and outcome for audit.
 
-Permission denial must happen before process creation and must not be bypassable through the CLI, voice, JSON execution endpoint, SSE endpoint, or a modified request body. Policies default to deny for command classes not explicitly allowed. Existing safety blocks remain in force as an additional layer, not as a substitute for workspace permissions.
+Permission denial happens before process creation on backend execution routes. Remote approval grants are bound to the current policy version, expire after ten minutes, and can be consumed only once. In `restricted_safe_autocommand`, commands default to deny unless their executable is explicitly allowed; `confirmation_required` permits commands through the baseline safety checks only after explicit approval. Existing safety blocks remain in force as an additional layer, not as a substitute for workspace permissions. The host CLI still executes locally and does not yet consume workspace policies; that is part of S5.
 
 Approved commands remain capable of modifying files inside their authorized writable workspace. The product does not promise safe execution of arbitrary untrusted shell code merely because a command was approved.
 
 ## Initial workspace policy
 
-The first implementation will use typed, versioned settings rather than a user-authored policy language:
+The first implementation uses typed, versioned settings rather than a user-authored policy language:
 
 - execution mode: disabled, confirmation-required, or restricted-safe-autocommand;
 - canonical workspace root and optional narrower writable roots;
-- allowed and denied executable/command classes, with deny taking precedence;
-- risk classes requiring explicit confirmation;
+- allowed and denied executable names, with deny taking precedence;
+- explicit confirmation for backend execution, with approvals bound to the policy version;
 - maximum command duration and captured output bytes;
 - policy version and update audit fields.
 
@@ -61,7 +64,8 @@ Unknown or malformed policy values fail closed. Destructive and privileged comma
 - `api_tokens`: user owner, token hash, label, created/last-used/revocation timestamps.
 - `workspaces`: owner, name, canonical root, status, timestamps.
 - `workspace_permissions`: workspace, policy version, typed policy settings, update actor and timestamp.
-- Existing project/session/event data gains workspace ownership; command events also record the initiating user and the policy version/decision.
+- `command_approvals`: short-lived command binding hash, owner/workspace/session/request/policy version, expiry, and one-time consumption timestamp.
+- Existing project/session/event data gains workspace ownership; backend command events record the initiating user, policy version, and whether the workspace policy allowed dispatch. Host CLI events are labeled as externally executed without server authorization.
 
 Membership/sharing is intentionally excluded from the first multi-user checkpoint. Ownership is one user per workspace until invitation and role semantics are designed.
 
@@ -80,7 +84,7 @@ Workspace endpoints:
 - `POST /v1/workspaces/{workspace_id}/adopt` for explicit legacy-data adoption.
 - `GET /v1/workspaces/{workspace_id}/permissions`, `PUT /v1/workspaces/{workspace_id}/permissions`.
 
-Workspace and session reads/writes, command recording, memory search/backfill, project context, planning, and execution are scoped to the principal's owned workspace. Requests containing an inaccessible workspace/session receive `404`. Client-supplied owner IDs are ignored/rejected. Workspace permission endpoints are listed for the planned S4 contract and are not implemented yet.
+Workspace and session reads/writes, command recording, memory search/backfill, project context, planning, and execution are scoped to the principal's owned workspace. Requests containing an inaccessible workspace/session receive `404`. Client-supplied owner IDs are ignored/rejected. Permission denials happen before executor dispatch; remote approvals are single-use.
 
 All existing session, memory, voice, planning, recording, and execution routes become scoped to the authenticated workspace. The API derives the user from credentials and checks workspace access on every request. Health remains public; configuration metadata must not reveal secrets or internal credentials.
 

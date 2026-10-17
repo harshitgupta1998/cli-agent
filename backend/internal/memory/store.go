@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/hex"
@@ -31,6 +32,10 @@ type Store interface {
 	ListWorkspaces(ctx context.Context, ownerUserID string) (models.WorkspaceListResponse, error)
 	GetWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error)
 	UpdateWorkspace(ctx context.Context, ownerUserID string, workspaceID string, name string) (models.Workspace, error)
+	WorkspacePermissions(ctx context.Context, ownerUserID string, workspaceID string) (models.WorkspacePermissions, error)
+	UpdateWorkspacePermissions(ctx context.Context, ownerUserID string, workspaceID string, updateUserID string, permissions models.WorkspacePermissionsUpdate) (models.WorkspacePermissions, error)
+	CreateCommandApproval(ctx context.Context, ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string, expiresAt time.Time) (string, error)
+	ConsumeCommandApproval(ctx context.Context, approvalID string, ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string) error
 	AdoptLegacyWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error)
 	ResolveWorkspace(ctx context.Context, ownerUserID string, workspaceID string, cwd string, create bool) (models.Workspace, error)
 	SessionWorkspace(ctx context.Context, ownerUserID string, sessionID string) (models.Workspace, error)
@@ -188,6 +193,7 @@ func (s *PostgresStore) Close() error {
 
 var ErrWorkspaceNotFound = errors.New("workspace not found")
 var ErrWorkspaceConflict = errors.New("workspace conflicts with an existing workspace")
+var ErrApprovalInvalid = errors.New("command approval is invalid or already consumed")
 
 func (s *PostgresStore) CreateWorkspace(ctx context.Context, ownerUserID string, name string, rootPath string) (models.Workspace, error) {
 	rootPath, err := canonicalWorkspacePath(rootPath)
@@ -285,6 +291,132 @@ func (s *PostgresStore) UpdateWorkspace(ctx context.Context, ownerUserID string,
 		return models.Workspace{}, fmt.Errorf("update workspace: %w", err)
 	}
 	return workspace, nil
+}
+
+func (s *PostgresStore) WorkspacePermissions(ctx context.Context, ownerUserID string, workspaceID string) (models.WorkspacePermissions, error) {
+	var permissions models.WorkspacePermissions
+	var writableRoots, allowedCommands, deniedCommands []byte
+	err := s.db.QueryRowContext(ctx, `
+		SELECT p.workspace_id, p.policy_version, p.execution_mode, p.writable_roots_json,
+			p.allowed_commands_json, p.denied_commands_json, p.max_duration_seconds, p.max_output_bytes, p.updated_at
+		FROM workspace_permissions p
+		JOIN workspaces w ON w.id = p.workspace_id
+		WHERE p.workspace_id = $1 AND w.owner_user_id = $2 AND w.status = 'active'
+	`, workspaceID, ownerUserID).Scan(
+		&permissions.WorkspaceID, &permissions.PolicyVersion, &permissions.ExecutionMode,
+		&writableRoots, &allowedCommands, &deniedCommands, &permissions.MaxDurationSeconds,
+		&permissions.MaxOutputBytes, &permissions.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.WorkspacePermissions{}, ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("get workspace permissions: %w", err)
+	}
+	if err := json.Unmarshal(writableRoots, &permissions.WritableRoots); err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("decode writable roots: %w", err)
+	}
+	if err := json.Unmarshal(allowedCommands, &permissions.AllowedCommands); err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("decode allowed commands: %w", err)
+	}
+	if err := json.Unmarshal(deniedCommands, &permissions.DeniedCommands); err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("decode denied commands: %w", err)
+	}
+	return permissions, nil
+}
+
+func (s *PostgresStore) UpdateWorkspacePermissions(ctx context.Context, ownerUserID string, workspaceID string, updateUserID string, update models.WorkspacePermissionsUpdate) (models.WorkspacePermissions, error) {
+	writableRoots, err := json.Marshal(update.WritableRoots)
+	if err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("encode writable roots: %w", err)
+	}
+	allowedCommands, err := json.Marshal(update.AllowedCommands)
+	if err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("encode allowed commands: %w", err)
+	}
+	deniedCommands, err := json.Marshal(update.DeniedCommands)
+	if err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("encode denied commands: %w", err)
+	}
+	var permissions models.WorkspacePermissions
+	var storedRoots, storedAllowed, storedDenied []byte
+	err = s.db.QueryRowContext(ctx, `
+		UPDATE workspace_permissions p SET
+			policy_version = p.policy_version + 1,
+			execution_mode = $3,
+			writable_roots_json = $4::jsonb,
+			allowed_commands_json = $5::jsonb,
+			denied_commands_json = $6::jsonb,
+			max_duration_seconds = $7,
+			max_output_bytes = $8,
+			updated_by_user_id = $9,
+			updated_at = now()
+		FROM workspaces w
+		WHERE p.workspace_id = $1 AND w.id = p.workspace_id AND w.owner_user_id = $2 AND w.status = 'active'
+		RETURNING p.workspace_id, p.policy_version, p.execution_mode, p.writable_roots_json,
+			p.allowed_commands_json, p.denied_commands_json, p.max_duration_seconds, p.max_output_bytes, p.updated_at
+	`, workspaceID, ownerUserID, update.ExecutionMode, writableRoots, allowedCommands, deniedCommands,
+		update.MaxDurationSeconds, update.MaxOutputBytes, updateUserID).Scan(
+		&permissions.WorkspaceID, &permissions.PolicyVersion, &permissions.ExecutionMode,
+		&storedRoots, &storedAllowed, &storedDenied, &permissions.MaxDurationSeconds,
+		&permissions.MaxOutputBytes, &permissions.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.WorkspacePermissions{}, ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return models.WorkspacePermissions{}, fmt.Errorf("update workspace permissions: %w", err)
+	}
+	_ = json.Unmarshal(storedRoots, &permissions.WritableRoots)
+	_ = json.Unmarshal(storedAllowed, &permissions.AllowedCommands)
+	_ = json.Unmarshal(storedDenied, &permissions.DeniedCommands)
+	return permissions, nil
+}
+
+func (s *PostgresStore) CreateCommandApproval(ctx context.Context, ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string, expiresAt time.Time) (string, error) {
+	id := "apr_" + randomID()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO command_approvals(id, owner_user_id, workspace_id, session_id, request_id, policy_version, command_hash, cwd, expires_at)
+		SELECT $1, w.owner_user_id, w.id, NULLIF($4, ''), $5, $6, decode($7, 'hex'), $8, $9
+		FROM workspaces w WHERE w.id = $2 AND w.owner_user_id = $3 AND w.status = 'active'
+	`, id, workspaceID, ownerUserID, sessionID, requestID, policyVersion, commandBindingHash(command), cwd, expiresAt)
+	if err != nil {
+		return "", fmt.Errorf("create command approval: %w", err)
+	}
+	if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+		if rowsErr != nil {
+			return "", fmt.Errorf("verify command approval creation: %w", rowsErr)
+		}
+		return "", ErrWorkspaceNotFound
+	}
+	return id, nil
+}
+
+func (s *PostgresStore) ConsumeCommandApproval(ctx context.Context, approvalID string, ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string) error {
+	var consumedID string
+	err := s.db.QueryRowContext(ctx, `
+		UPDATE command_approvals a
+		SET consumed_at = now()
+		FROM workspace_permissions p
+		WHERE a.id = $1 AND a.owner_user_id = $2 AND a.workspace_id = $3
+		  AND COALESCE(a.session_id, '') = $4 AND a.request_id = $5 AND a.policy_version = $6
+		  AND p.workspace_id = a.workspace_id AND p.policy_version = $6
+		  AND a.command_hash = decode($7, 'hex') AND a.cwd = $8
+		  AND a.consumed_at IS NULL AND a.expires_at > now()
+		RETURNING a.id
+	`, approvalID, ownerUserID, workspaceID, sessionID, requestID, policyVersion, commandBindingHash(command), cwd).Scan(&consumedID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrApprovalInvalid
+	}
+	if err != nil {
+		return fmt.Errorf("consume command approval: %w", err)
+	}
+	return nil
+}
+
+func commandBindingHash(command string) string {
+	hash := sha256.Sum256([]byte(command))
+	return hex.EncodeToString(hash[:])
 }
 
 func (s *PostgresStore) AdoptLegacyWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error) {
@@ -586,6 +718,8 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 			project_id,
 			workspace_id,
 			owner_user_id,
+			workspace_policy_version,
+			workspace_policy_decision,
 			user_request,
 			proposed_command,
 			final_command,
@@ -602,7 +736,7 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 			ended_at,
 			tags_json
 		)
-		SELECT $1, s.id, s.project_id, s.workspace_id, s.owner_user_id,
+		SELECT $1, s.id, s.project_id, s.workspace_id, s.owner_user_id, NULLIF($17, 0), NULLIF($18, ''),
 			$3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now(), '[]'::jsonb
 		FROM sessions s
 		WHERE s.id = $2 AND s.owner_user_id = $15 AND s.workspace_id = $16
@@ -624,6 +758,8 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 		payload.DurationMS,
 		payload.OwnerUserID,
 		payload.WorkspaceID,
+		payload.WorkspacePolicyVersion,
+		payload.WorkspacePolicyDecision,
 	).Scan(&persistedID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.CommandRecordResponse{}, ErrWorkspaceNotFound

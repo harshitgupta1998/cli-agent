@@ -18,8 +18,10 @@ import (
 )
 
 type workerRequest struct {
-	Command string `json:"command"`
-	CWD     string `json:"cwd"`
+	Command        string `json:"command"`
+	CWD            string `json:"cwd"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	MaxOutputBytes int    `json:"max_output_bytes,omitempty"`
 }
 
 type unixClient struct {
@@ -53,6 +55,10 @@ func (c unixClient) RunWithOutput(ctx context.Context, command string, cwd strin
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
+	return c.runRequest(ctx, request, onOutput, started)
+}
+
+func (c unixClient) runRequest(ctx context.Context, request *http.Request, onOutput func(models.CommandOutputChunk), started time.Time) models.CommandExecuteResponse {
 	response, err := c.client.Do(request)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
@@ -116,6 +122,21 @@ func (c unixClient) RunWithOutput(ctx context.Context, command string, cwd strin
 		return workerFailure(errors.New("executor worker closed before sending a result"), started)
 	}
 	return *result
+}
+
+func (c unixClient) RunWithLimits(ctx context.Context, command string, cwd string, timeout time.Duration, maxOutputBytes int, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse {
+	started := time.Now()
+	body, err := json.Marshal(workerRequest{Command: command, CWD: cwd, TimeoutSeconds: int(timeout / time.Second), MaxOutputBytes: maxOutputBytes})
+	if err != nil {
+		return workerFailure(err, started)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://termind-executor/execute", bytes.NewReader(body))
+	if err != nil {
+		return workerFailure(err, started)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "text/event-stream")
+	return c.runRequest(ctx, request, onOutput, started)
 }
 
 func cancelledResponse(stdout string, stderr string, started time.Time) models.CommandExecuteResponse {
@@ -184,9 +205,16 @@ func NewWorkerHandler(runner Executor) http.Handler {
 			writeEvent("complete", models.CommandExecuteResponse{Status: models.CommandStatusBlocked, Stderr: reason})
 			return
 		}
-		result := runner.RunWithOutput(r.Context(), payload.Command, payload.CWD, func(chunk models.CommandOutputChunk) {
+		onOutput := func(chunk models.CommandOutputChunk) {
 			writeEvent("output", chunk)
-		})
+		}
+		var result models.CommandExecuteResponse
+		if limitedRunner, ok := runner.(LimitedExecutor); ok {
+			result = limitedRunner.RunWithLimits(r.Context(), payload.Command, payload.CWD,
+				time.Duration(payload.TimeoutSeconds)*time.Second, payload.MaxOutputBytes, onOutput)
+		} else {
+			result = runner.RunWithOutput(r.Context(), payload.Command, payload.CWD, onOutput)
+		}
 		writeEvent("complete", result)
 	})
 	return mux

@@ -25,6 +25,10 @@ type Agent interface {
 	ListWorkspaces(ownerUserID string) models.WorkspaceListResponse
 	GetWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error)
 	UpdateWorkspace(ownerUserID string, workspaceID string, name string) (models.Workspace, error)
+	WorkspacePermissions(ownerUserID string, workspaceID string) (models.WorkspacePermissions, error)
+	UpdateWorkspacePermissions(ownerUserID string, workspaceID string, update models.WorkspacePermissionsUpdate) (models.WorkspacePermissions, error)
+	CreateCommandApproval(ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string, expiresAt time.Time) (string, error)
+	ConsumeCommandApproval(approvalID string, ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string) error
 	AdoptLegacyWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error)
 	ResolveWorkspace(ownerUserID string, workspaceID string, cwd string, create bool) (models.Workspace, error)
 	SessionWorkspace(ownerUserID string, sessionID string) (models.Workspace, error)
@@ -81,6 +85,42 @@ func (m AgentService) UpdateWorkspace(ownerUserID string, workspaceID string, na
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return m.memory.UpdateWorkspace(ctx, ownerUserID, workspaceID, name)
+}
+
+func (m AgentService) WorkspacePermissions(ownerUserID string, workspaceID string) (models.WorkspacePermissions, error) {
+	if m.memory == nil {
+		return models.WorkspacePermissions{}, memory.ErrWorkspaceNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.WorkspacePermissions(ctx, ownerUserID, workspaceID)
+}
+
+func (m AgentService) UpdateWorkspacePermissions(ownerUserID string, workspaceID string, update models.WorkspacePermissionsUpdate) (models.WorkspacePermissions, error) {
+	if m.memory == nil {
+		return models.WorkspacePermissions{}, memory.ErrWorkspaceNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.UpdateWorkspacePermissions(ctx, ownerUserID, workspaceID, ownerUserID, update)
+}
+
+func (m AgentService) CreateCommandApproval(ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string, expiresAt time.Time) (string, error) {
+	if m.memory == nil {
+		return "", errors.New("approval_storage_unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.CreateCommandApproval(ctx, ownerUserID, workspaceID, sessionID, requestID, policyVersion, command, cwd, expiresAt)
+}
+
+func (m AgentService) ConsumeCommandApproval(approvalID string, ownerUserID string, workspaceID string, sessionID string, requestID string, policyVersion int, command string, cwd string) error {
+	if m.memory == nil {
+		return errors.New("approval_storage_unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.memory.ConsumeCommandApproval(ctx, approvalID, ownerUserID, workspaceID, sessionID, requestID, policyVersion, command, cwd)
 }
 
 func (m AgentService) AdoptLegacyWorkspace(ownerUserID string, workspaceID string) (models.Workspace, error) {
@@ -305,7 +345,16 @@ func (m AgentService) ExecuteStream(ctx context.Context, payload models.CommandE
 	if commandExecutor == nil {
 		commandExecutor = executor.NewRunner(m.commandTimeout, m.executionRoots, m.maxOutputBytes, m.envAllowlist)
 	}
-	response := commandExecutor.RunWithOutput(ctx, command, payload.CWD, onOutput)
+	var response models.CommandExecuteResponse
+	if limitedExecutor, ok := commandExecutor.(executor.LimitedExecutor); ok {
+		timeout := m.commandTimeout
+		if payload.ExecutionTimeoutSeconds > 0 {
+			timeout = time.Duration(payload.ExecutionTimeoutSeconds) * time.Second
+		}
+		response = limitedExecutor.RunWithLimits(ctx, command, payload.CWD, timeout, payload.MaxOutputBytes, onOutput)
+	} else {
+		response = commandExecutor.RunWithOutput(ctx, command, payload.CWD, onOutput)
+	}
 	response.CommandEventID = "cmd_" + shortID()
 	if record := m.persistExecution(payload, response); record.CommandEventID != "" {
 		response.CommandEventID = record.CommandEventID
@@ -408,21 +457,23 @@ func (m AgentService) persistExecution(payload models.CommandExecuteRequest, res
 	defer cancel()
 
 	record, err := m.memory.RecordCommand(ctx, models.CommandRecordRequest{
-		SessionID:       payload.SessionID,
-		RequestID:       payload.RequestID,
-		UserRequest:     userRequest,
-		ProposedCommand: payload.Command,
-		FinalCommand:    payload.Command,
-		CWD:             payload.CWD,
-		Shell:           shell,
-		RiskLevel:       risk,
-		Confirmation:    confirmation,
-		ExitCode:        exitCode,
-		Stdout:          summarize(response.Stdout),
-		Stderr:          summarize(response.Stderr),
-		DurationMS:      response.DurationMS,
-		WorkspaceID:     payload.WorkspaceID,
-		OwnerUserID:     payload.OwnerUserID,
+		SessionID:               payload.SessionID,
+		RequestID:               payload.RequestID,
+		UserRequest:             userRequest,
+		ProposedCommand:         payload.Command,
+		FinalCommand:            payload.Command,
+		CWD:                     payload.CWD,
+		Shell:                   shell,
+		RiskLevel:               risk,
+		Confirmation:            confirmation,
+		ExitCode:                exitCode,
+		Stdout:                  summarize(response.Stdout),
+		Stderr:                  summarize(response.Stderr),
+		DurationMS:              response.DurationMS,
+		WorkspaceID:             payload.WorkspaceID,
+		WorkspacePolicyVersion:  payload.WorkspacePolicyVersion,
+		WorkspacePolicyDecision: payload.WorkspacePolicyDecision,
+		OwnerUserID:             payload.OwnerUserID,
 	})
 	if err != nil {
 		return models.CommandRecordResponse{}

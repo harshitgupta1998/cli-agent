@@ -68,6 +68,7 @@ type RuntimeConfig = {
 
 type UserRequestResponse = {
   request_id: string;
+  approval_token?: string;
   intent: string;
   plan: CommandPlan;
   policy: {
@@ -339,6 +340,7 @@ function App() {
         body: JSON.stringify({
           session_id: sessionId,
           request_id: plan.request_id,
+          approval_token: plan.approval_token,
           user_request: input,
           command: plan.plan.command,
           cwd: plan.plan.cwd,

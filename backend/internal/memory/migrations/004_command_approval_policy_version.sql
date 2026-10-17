@@ -1,0 +1,2 @@
+ALTER TABLE command_approvals
+  ADD COLUMN IF NOT EXISTS policy_version INTEGER NOT NULL DEFAULT 1;

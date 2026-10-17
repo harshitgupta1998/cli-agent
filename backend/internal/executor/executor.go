@@ -30,6 +30,10 @@ type Executor interface {
 	RunWithOutput(ctx context.Context, command string, cwd string, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse
 }
 
+type LimitedExecutor interface {
+	RunWithLimits(ctx context.Context, command string, cwd string, timeout time.Duration, maxOutputBytes int, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse
+}
+
 func NewRunner(timeout time.Duration, allowedRoots []string, maxOutputBytes int, envAllowlist []string) Executor {
 	if timeout <= 0 {
 		timeout = defaultTimeout
@@ -50,6 +54,16 @@ func (r Runner) Run(ctx context.Context, command string, cwd string) models.Comm
 }
 
 func (r Runner) RunWithOutput(ctx context.Context, command string, cwd string, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse {
+	return r.RunWithLimits(ctx, command, cwd, r.timeout, r.maxOutputBytes, onOutput)
+}
+
+func (r Runner) RunWithLimits(ctx context.Context, command string, cwd string, timeout time.Duration, maxOutputBytes int, onOutput func(models.CommandOutputChunk)) models.CommandExecuteResponse {
+	if timeout <= 0 || timeout > r.timeout {
+		timeout = r.timeout
+	}
+	if maxOutputBytes <= 0 || maxOutputBytes > r.maxOutputBytes {
+		maxOutputBytes = r.maxOutputBytes
+	}
 	started := time.Now()
 	resolvedCWD, err := ValidateWorkingDirectory(cwd, r.allowedRoots)
 	if err != nil {
@@ -60,7 +74,7 @@ func (r Runner) RunWithOutput(ctx context.Context, command string, cwd string, o
 		}
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, "sh", "-c", command)
@@ -79,7 +93,7 @@ func (r Runner) RunWithOutput(ctx context.Context, command string, cwd string, o
 	}
 	cmd.WaitDelay = 2 * time.Second
 
-	output := &outputCapture{maxBytes: r.maxOutputBytes, onOutput: onOutput}
+	output := &outputCapture{maxBytes: maxOutputBytes, onOutput: onOutput}
 	cmd.Stdout = outputWriter{capture: output, stream: "stdout"}
 	cmd.Stderr = outputWriter{capture: output, stream: "stderr"}
 

@@ -36,10 +36,11 @@ Implemented:
 - Phase 6.4: frontend microphone and transcript confirmation UI
 - Phase 6.5: route confirmed transcripts through planning and policy
 - Phase 6.6: host CLI voice command wrapper
+- S1-S4: bearer auth, owner-scoped workspaces, per-workspace command permissions, and one-time approval binding
 
 Remaining development priorities:
 
-- Workspace ownership and owner-scoped API persistence are implemented. Workspace-specific command permissions and authenticated CLI/frontend flows remain before remote or multi-user deployment. See [docs/security_model.md](docs/security_model.md).
+- Workspace ownership and server-enforced command permissions are implemented. Authenticated CLI/frontend credential and workspace selection flows remain before remote or multi-user deployment. See [docs/security_model.md](docs/security_model.md).
 - Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
 - Extend project context detection and tune semantic recall using real usage.
 
@@ -93,9 +94,11 @@ POST /v1/workspaces
 GET  /v1/workspaces/{workspace_id}
 PATCH /v1/workspaces/{workspace_id}
 POST /v1/workspaces/{workspace_id}/adopt
+GET  /v1/workspaces/{workspace_id}/permissions
+PUT  /v1/workspaces/{workspace_id}/permissions
 ```
 
-The local default is unauthenticated and intended for one user on the same machine; direct host runs bind to loopback, and Compose publishes the API only on `127.0.0.1`. To exercise bearer authentication, set `TERMIND_BOOTSTRAP_TOKEN` to a unique random secret of at least 32 characters in `.env` and send it as `Authorization: Bearer ...`. Authenticated deployment additionally requires `LOCAL_ONLY_MODE=false`; do not expose it publicly until workspace ownership and permission checkpoints are complete, and put TLS in front of any remote deployment.
+The local default is unauthenticated and intended for one user on the same machine; direct host runs bind to loopback, and Compose publishes the API only on `127.0.0.1`. To exercise bearer authentication, set `TERMIND_BOOTSTRAP_TOKEN` to a unique random secret of at least 32 characters in `.env` and send it as `Authorization: Bearer ...`. Authenticated deployment additionally requires `LOCAL_ONLY_MODE=false` and a stable random `COMMAND_APPROVAL_SECRET` of at least 32 characters; put TLS in front of any remote deployment. Authenticated CLI/frontend credential and workspace selection flows are not implemented yet, so remote deployment remains premature.
 
 Create a persistent API token using the bootstrap token. The returned `secret` is shown only once; Postgres stores its SHA-256 hash:
 
@@ -366,7 +369,6 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 ## Remaining Product Work
 
-- **Execution permissions:** add and enforce per-workspace command permissions and bind approvals to the exact command and workspace.
-- **Multi-user product:** add authenticated CLI/frontend credential and workspace flows, user onboarding, and audit retention controls before remote or team deployment.
+- **Client integration:** add authenticated CLI/frontend credential and workspace selection, user onboarding, and audit retention controls before remote or team deployment.
 - **Voice and context:** make host CLI speech-to-text setup cross-platform, add live microphone input, and expand project-specific command detection.
 - **Quality:** tune planner and semantic recall against representative user traces, with health checks and useful diagnostics.

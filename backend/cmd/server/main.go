@@ -41,6 +41,9 @@ func main() {
 	if cfg.LocalOnlyMode != "true" && len(cfg.BootstrapToken) < 32 {
 		log.Fatal("authenticated mode requires TERMIND_BOOTSTRAP_TOKEN with at least 32 characters")
 	}
+	if cfg.LocalOnlyMode != "true" && len(cfg.CommandApprovalSecret) < 32 {
+		log.Fatal("authenticated mode requires COMMAND_APPROVAL_SECRET with at least 32 characters")
+	}
 	principal := auth.Principal{UserID: cfg.BootstrapUserID, Name: cfg.BootstrapUserName}
 	authManager := auth.NewManager(authRepository, cfg.BootstrapToken, principal)
 	if err := authManager.EnsureBootstrapUser(ctx); err != nil {

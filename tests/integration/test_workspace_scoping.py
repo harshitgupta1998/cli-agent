@@ -55,3 +55,55 @@ def test_session_messages_and_execution_cannot_escape_workspace_scope(api):
     )
     assert execute_status == 404
     assert result == {"error": "workspace_not_found"}
+
+
+def test_workspace_policy_is_validated_and_denied_before_execution(api):
+    cwd = "/tmp/termind-policy-" + uuid4().hex
+    session_status, session = api.post("/v1/sessions", {"cwd": cwd, "shell": "sh"})
+    assert session_status == 200
+    workspace_id = session["workspace_id"]
+    permissions_path = f"/v1/workspaces/{workspace_id}/permissions"
+
+    status, defaults = api.get(permissions_path)
+    assert status == 200
+    assert defaults["execution_mode"] == "confirmation_required"
+
+    status, error = api.put(
+        permissions_path,
+        {
+            "execution_mode": "unknown-mode",
+            "writable_roots": [],
+            "allowed_commands": [],
+            "denied_commands": [],
+            "max_duration_seconds": 30,
+            "max_output_bytes": 1048576,
+        },
+    )
+    assert status == 400
+    assert error == {"error": "execution_mode_invalid"}
+
+    status, updated = api.put(
+        permissions_path,
+        {
+            "execution_mode": "disabled",
+            "writable_roots": [],
+            "allowed_commands": [],
+            "denied_commands": [],
+            "max_duration_seconds": 30,
+            "max_output_bytes": 1048576,
+        },
+    )
+    assert status == 200
+    assert updated["policy_version"] > defaults["policy_version"]
+
+    status, error = api.post(
+        "/v1/commands/execute",
+        {
+            "session_id": session["session_id"],
+            "command": "pwd",
+            "cwd": cwd,
+            "confirmation": {"status": "approved"},
+        },
+    )
+    assert status == 403
+    assert error["error"] == "execution_disabled"

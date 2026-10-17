@@ -2,27 +2,42 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/harsgupta/termind/backend/internal/auth"
 	"github.com/harsgupta/termind/backend/internal/config"
 	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
+	"github.com/harsgupta/termind/backend/internal/policy"
 	"github.com/harsgupta/termind/backend/internal/services"
 )
 
 type Server struct {
-	cfg   config.Config
-	agent services.Agent
-	auth  *auth.Manager
+	cfg         config.Config
+	agent       services.Agent
+	auth        *auth.Manager
+	approvalKey []byte
 }
 
 func NewServer(cfg config.Config, agent services.Agent, authManagers ...auth.Manager) Server {
-	server := Server{cfg: cfg, agent: agent}
+	key := sha256.Sum256([]byte(cfg.CommandApprovalSecret))
+	approvalKey := key[:]
+	if cfg.CommandApprovalSecret == "" {
+		approvalKey = make([]byte, 32)
+		if _, err := rand.Read(approvalKey); err != nil {
+			panic("initialize approval signing key: " + err.Error())
+		}
+	}
+	server := Server{cfg: cfg, agent: agent, approvalKey: approvalKey}
 	if len(authManagers) > 0 {
 		server.auth = &authManagers[0]
 	}
@@ -40,6 +55,8 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/workspaces", s.createWorkspace)
 	mux.HandleFunc("GET /v1/workspaces/{workspace_id}", s.getWorkspace)
 	mux.HandleFunc("PATCH /v1/workspaces/{workspace_id}", s.updateWorkspace)
+	mux.HandleFunc("GET /v1/workspaces/{workspace_id}/permissions", s.getWorkspacePermissions)
+	mux.HandleFunc("PUT /v1/workspaces/{workspace_id}/permissions", s.updateWorkspacePermissions)
 	mux.HandleFunc("POST /v1/workspaces/{workspace_id}/adopt", s.adoptWorkspace)
 	mux.HandleFunc("GET /v1/config", s.getConfig)
 	mux.HandleFunc("POST /v1/sessions", s.createSession)
@@ -218,6 +235,39 @@ func (s Server) adoptWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workspace)
 }
 
+func (s Server) getWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	principal := s.requestPrincipal(r)
+	permissions, err := s.agent.WorkspacePermissions(principal.UserID, strings.TrimSpace(r.PathValue("workspace_id")))
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, permissions)
+}
+
+func (s Server) updateWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	var update models.WorkspacePermissionsUpdate
+	if !decodeJSON(w, r, &update) {
+		return
+	}
+	if err := policy.ValidateWorkspacePermissions(update); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	principal := s.requestPrincipal(r)
+	workspaceID := strings.TrimSpace(r.PathValue("workspace_id"))
+	if _, err := s.agent.GetWorkspace(principal.UserID, workspaceID); err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	permissions, err := s.agent.UpdateWorkspacePermissions(principal.UserID, workspaceID, update)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, permissions)
+}
+
 func writeWorkspaceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, memory.ErrWorkspaceNotFound):
@@ -322,7 +372,31 @@ func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {
 	payload.OwnerUserID = principal.UserID
 	payload.WorkspaceID = workspace.ID
 
-	writeJSON(w, http.StatusOK, s.agent.CreateRequest(payload))
+	response := s.agent.CreateRequest(payload)
+	if response.Intent == models.IntentExecuteCommand && strings.TrimSpace(response.Plan.Command) != "" {
+		claims := approvalClaims{
+			UserID: principal.UserID, SessionID: payload.SessionID, WorkspaceID: workspace.ID,
+			RequestID: response.RequestID, Command: response.Plan.Command, CWD: payload.CWD,
+			ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
+		}
+		if s.cfg.LocalOnlyMode != "true" {
+			permissions, err := s.agent.WorkspacePermissions(principal.UserID, workspace.ID)
+			if err != nil {
+				writeWorkspaceError(w, err)
+				return
+			}
+			claims.PolicyVersion = permissions.PolicyVersion
+			grantID, err := s.agent.CreateCommandApproval(claims.UserID, claims.WorkspaceID, claims.SessionID,
+				claims.RequestID, claims.PolicyVersion, claims.Command, claims.CWD, time.Unix(claims.ExpiresAt, 0))
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "approval_storage_unavailable")
+				return
+			}
+			claims.ApprovalID = grantID
+			response.ApprovalToken = s.issueApprovalToken(claims)
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s Server) executeCommand(w http.ResponseWriter, r *http.Request) {
@@ -358,12 +432,125 @@ func (s Server) executeCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload.OwnerUserID = principal.UserID
+	if payload.WorkspaceID != "" {
+		permissions, err := s.agent.WorkspacePermissions(principal.UserID, payload.WorkspaceID)
+		if err != nil {
+			writeWorkspaceError(w, err)
+			return
+		}
+		workspace, err := s.agent.GetWorkspace(principal.UserID, payload.WorkspaceID)
+		if err != nil {
+			writeWorkspaceError(w, err)
+			return
+		}
+		if code, message := policy.EvaluateWorkspaceCommand(permissions, workspace.RootPath, payload.CWD, payload.Command); code != "" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": code, "message": message})
+			return
+		}
+		payload.ExecutionTimeoutSeconds = permissions.MaxDurationSeconds
+		payload.MaxOutputBytes = permissions.MaxOutputBytes
+		payload.WorkspacePolicyVersion = permissions.PolicyVersion
+		payload.WorkspacePolicyDecision = "allowed"
+		if payload.Confirmation.Status == models.ConfirmationApproved {
+			if payload.ApprovalToken == "" && s.cfg.LocalOnlyMode != "true" {
+				writeError(w, http.StatusForbidden, "approval_token_required")
+				return
+			}
+			if payload.ApprovalToken != "" {
+				expected := approvalClaims{
+					UserID: principal.UserID, SessionID: payload.SessionID, WorkspaceID: payload.WorkspaceID,
+					RequestID: payload.RequestID, Command: payload.Command, CWD: payload.CWD,
+					PolicyVersion: permissions.PolicyVersion,
+				}
+				claims, valid := s.parseApprovalToken(payload.ApprovalToken)
+				if !valid || claims.ApprovalID == "" || !approvalClaimsMatch(claims, expected) {
+					writeError(w, http.StatusForbidden, "approval_token_invalid")
+					return
+				}
+				if err := s.agent.ConsumeCommandApproval(claims.ApprovalID, principal.UserID, payload.WorkspaceID,
+					payload.SessionID, payload.RequestID, permissions.PolicyVersion, payload.Command, payload.CWD); err != nil {
+					if errors.Is(err, memory.ErrApprovalInvalid) {
+						writeError(w, http.StatusForbidden, "approval_token_invalid")
+					} else {
+						writeError(w, http.StatusServiceUnavailable, "approval_storage_unavailable")
+					}
+					return
+				}
+			}
+		}
+		resolvedCWD, err := policy.CanonicalWorkingDirectory(payload.CWD)
+		if err != nil {
+			writeError(w, http.StatusForbidden, "working_directory_invalid")
+			return
+		}
+		payload.CWD = resolvedCWD
+	}
 
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		s.streamCommand(w, r, payload)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agent.Execute(payload))
+}
+
+type approvalClaims struct {
+	ApprovalID    string `json:"i"`
+	PolicyVersion int    `json:"p"`
+	UserID        string `json:"u"`
+	SessionID     string `json:"s"`
+	WorkspaceID   string `json:"w"`
+	RequestID     string `json:"r"`
+	Command       string `json:"c"`
+	CWD           string `json:"d"`
+	ExpiresAt     int64  `json:"e"`
+}
+
+func (s Server) issueApprovalToken(claims approvalClaims) string {
+	encoded, err := json.Marshal(claims)
+	if err != nil {
+		return ""
+	}
+	payload := base64.RawURLEncoding.EncodeToString(encoded)
+	mac := hmac.New(sha256.New, s.approvalKey)
+	_, _ = mac.Write([]byte(payload))
+	return payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (s Server) verifyApprovalToken(token string, expected approvalClaims) bool {
+	claims, valid := s.parseApprovalToken(token)
+	return valid && approvalClaimsMatch(claims, expected)
+}
+
+func approvalClaimsMatch(claims approvalClaims, expected approvalClaims) bool {
+	return claims.UserID == expected.UserID && claims.SessionID == expected.SessionID &&
+		claims.WorkspaceID == expected.WorkspaceID && claims.RequestID == expected.RequestID &&
+		claims.Command == expected.Command && claims.CWD == expected.CWD && claims.PolicyVersion == expected.PolicyVersion &&
+		claims.ExpiresAt > time.Now().Unix()
+}
+
+func (s Server) parseApprovalToken(token string) (approvalClaims, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return approvalClaims{}, false
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return approvalClaims{}, false
+	}
+	mac := hmac.New(sha256.New, s.approvalKey)
+	_, _ = mac.Write([]byte(parts[0]))
+	if !hmac.Equal(signature, mac.Sum(nil)) {
+		return approvalClaims{}, false
+	}
+	encoded, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return approvalClaims{}, false
+	}
+	var claims approvalClaims
+	if json.Unmarshal(encoded, &claims) != nil || claims.ApprovalID == "" || claims.ExpiresAt <= time.Now().Unix() {
+		return approvalClaims{}, false
+	}
+	return claims, true
 }
 
 func (s Server) streamCommand(w http.ResponseWriter, r *http.Request, payload models.CommandExecuteRequest) {
@@ -431,6 +618,13 @@ func (s Server) recordCommand(w http.ResponseWriter, r *http.Request) {
 	}
 	payload.OwnerUserID = principal.UserID
 	payload.WorkspaceID = workspace.ID
+	permissions, err := s.agent.WorkspacePermissions(principal.UserID, workspace.ID)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	payload.WorkspacePolicyVersion = permissions.PolicyVersion
+	payload.WorkspacePolicyDecision = "host_execution_recorded_without_server_authorization"
 
 	writeJSON(w, http.StatusOK, s.agent.RecordCommand(payload))
 }

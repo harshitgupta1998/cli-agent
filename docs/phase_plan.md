@@ -87,7 +87,7 @@ Implementation contract: [security_model.md](security_model.md). These checkpoin
 - S2: user identity, opaque hashed API tokens, auth middleware, and fail-closed remote mode - implemented
 - S3.1: explicit workspace/permission schema and legacy-data backfill - implemented
 - S3.2: workspace APIs, owner-scoped persistence/API access, and explicit legacy workspace adoption - implemented
-- S4: versioned workspace command permissions and confirmation binding, enforced before executor dispatch
+- S4: versioned workspace command permissions and one-time approval binding, enforced before executor dispatch - implemented
 - S5: CLI/frontend workspace and credential integration, end-to-end isolation tests, and deployment hardening
 
 At every checkpoint, run the focused tests and the existing Go, frontend, and integration suites before committing. Local-only mode must remain loopback-bound and explicitly single-user; CORS is not an authentication mechanism.

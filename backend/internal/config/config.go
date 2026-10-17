@@ -21,6 +21,7 @@ type Config struct {
 	ExecutorSocketPath    string
 	LocalOnlyMode         string
 	BootstrapToken        string
+	CommandApprovalSecret string
 	BootstrapUserID       string
 	BootstrapUserName     string
 	CORSOrigin            string
@@ -46,6 +47,7 @@ func Load() Config {
 		ExecutorSocketPath:    env("EXECUTOR_SOCKET_PATH", "/run/termind/executor.sock"),
 		LocalOnlyMode:         env("LOCAL_ONLY_MODE", "true"),
 		BootstrapToken:        env("TERMIND_BOOTSTRAP_TOKEN", ""),
+		CommandApprovalSecret: env("COMMAND_APPROVAL_SECRET", ""),
 		BootstrapUserID:       env("TERMIND_BOOTSTRAP_USER_ID", "usr_owner"),
 		BootstrapUserName:     env("TERMIND_BOOTSTRAP_USER_NAME", "Termind Owner"),
 		CORSOrigin:            env("CORS_ORIGIN", "http://localhost:5173"),
