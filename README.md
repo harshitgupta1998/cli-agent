@@ -105,6 +105,8 @@ Use the returned token for later `/v1/auth/me` requests, and revoke it with `DEL
 
 `POST /v1/commands/execute` returns JSON by default. Send `Accept: text/event-stream` for `output` events followed by a `complete` event. Closing the request cancels the worker process group.
 
+The workspace schema migration is additive and runs once when the backend starts. Existing records are assigned to the reserved `usr_legacy_local` owner, not to the bootstrap identity; back up Postgres before upgrading, and wait for the explicit workspace adoption endpoint before expecting those legacy records under a user account.
+
 ## Architecture Snapshot
 
 ```text

@@ -85,7 +85,8 @@ Implementation contract: [security_model.md](security_model.md). These checkpoin
 
 - S1: security contract and compatibility decisions - implemented
 - S2: user identity, opaque hashed API tokens, auth middleware, and fail-closed remote mode - implemented
-- S3: explicit workspace ownership, legacy data migration, and owner-scoped persistence/API access
+- S3.1: explicit workspace/permission schema and legacy-data backfill - implemented
+- S3.2: workspace APIs and owner-scoped persistence/API access
 - S4: versioned workspace command permissions and confirmation binding, enforced before executor dispatch
 - S5: CLI/frontend workspace and credential integration, end-to-end isolation tests, and deployment hardening
 

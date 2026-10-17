@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the security contract for authentication and workspace permissions. S1 (the contract) and S2 (single-principal bearer authentication and token lifecycle) are implemented. Workspace ownership and per-workspace authorization are not yet implemented, so Termind must not be treated as ready for remote or multi-user use.
+This document defines the security contract for authentication and workspace permissions. S1 (the contract), S2 (single-principal bearer authentication and token lifecycle), and the S3.1 workspace schema/backfill are implemented. Workspace-scoped API enforcement and per-workspace command authorization are still pending, so Termind must not be treated as ready for remote or multi-user use.
 
 ## Deployment modes
 
@@ -24,6 +24,7 @@ This document defines the security contract for authentication and workspace per
 - A workspace is an explicit security and execution boundary, owned by a user and containing a canonical filesystem root plus its policy.
 - Projects, sessions, messages, command events, embeddings, learned commands, and preferences must be reachable only through an authorized workspace. Database access paths must carry the authenticated user/workspace scope; caller-supplied IDs alone are never authorization.
 - Existing local data must be migrated explicitly and recoverably. Migration must not silently make existing data visible to a newly created remote user.
+- The S3.1 migration assigns pre-existing rows only to the reserved `usr_legacy_local` owner, not to the configured bootstrap identity. Before upgrading an existing deployment, take a Postgres backup; data adoption into a real account will be an explicit S3.2 operation.
 - Workspace paths are canonicalized and checked after symlink resolution. The executor receives only a server-resolved workspace root and a working directory beneath it.
 
 ## Command authorization
