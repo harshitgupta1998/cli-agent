@@ -76,9 +76,20 @@ Implemented shape:
 
 Remaining work:
 
-- add authentication and workspace ownership before remote or multi-user deployment
-- add per-workspace command permissions and a stronger approval policy
-- approved commands can modify the configured workspace; this local product does not yet support untrusted multi-user execution
+- authentication and workspace authorization are tracked as separate checkpoints below; do not expose the API remotely until they are complete
+- approved commands can modify the configured workspace; this local product does not claim to safely execute arbitrary untrusted shell code
+
+## Authentication and Workspace Security
+
+Implementation contract: [security_model.md](security_model.md). These checkpoints must be completed and verified in order before remote or multi-user deployment:
+
+- S1: security contract and compatibility decisions - documented
+- S2: user identity, opaque hashed API tokens, auth middleware, and fail-closed remote mode
+- S3: explicit workspace ownership, legacy data migration, and owner-scoped persistence/API access
+- S4: versioned workspace command permissions and confirmation binding, enforced before executor dispatch
+- S5: CLI/frontend workspace and credential integration, end-to-end isolation tests, and deployment hardening
+
+At every checkpoint, run the focused tests and the existing Go, frontend, and integration suites before committing. Local-only mode must remain loopback-bound and explicitly single-user; CORS is not an authentication mechanism.
 
 ## Phase 4: Persistent Memory
 

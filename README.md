@@ -39,7 +39,7 @@ Implemented:
 
 Remaining development priorities:
 
-- Add user/workspace authentication and configurable audit retention for multi-user deployments.
+- Implement the authentication and workspace security checkpoints in [docs/security_model.md](docs/security_model.md). Until then, keep the API local-only; it is not safe for remote or multi-user deployment.
 - Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
 - Extend project context detection and tune semantic recall using real usage.
 
