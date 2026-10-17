@@ -16,7 +16,7 @@ This repository starts as a dockerized product template with:
 
 ## Current Status
 
-Termind has completed **Phase 6: Voice Input**.
+The core local-first product is implemented through **Phase 6: Voice Input** and security checkpoints **S1-S5**. It is ready for local single-user evaluation, but is not yet a production-ready hosted or team product.
 
 Implemented:
 
@@ -39,17 +39,20 @@ Implemented:
 - S1-S4: bearer auth, owner-scoped workspaces, per-workspace command permissions, and one-time approval binding
 - S5: authenticated CLI and browser clients, workspace selection, voice parity, and client-side host CLI policy checks
 
-Remaining development priorities:
-
-- Workspace ownership and server-enforced command permissions are implemented. Authenticated CLI/frontend credential and workspace selection flows remain before remote or multi-user deployment. See [docs/security_model.md](docs/security_model.md).
-- Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
-- Extend project context detection and tune semantic recall using real usage.
+The host CLI runs commands on the local machine. Its workspace policy checks are client-side guardrails; the browser uses the backend worker for server-enforced permissions and isolation. See [docs/security_model.md](docs/security_model.md) before considering remote use.
 
 ## Run Locally
 
 ```bash
 cp .env.example .env
 docker compose up --build
+```
+
+On macOS, if Docker reports that `docker-credential-desktop` cannot be found, run Compose with Docker's bundled helpers on `PATH`:
+
+```bash
+PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH" \
+  /Applications/Docker.app/Contents/Resources/bin/docker compose up --build
 ```
 
 Open:
@@ -381,8 +384,17 @@ TERMIND_API_BASE_URL=http://localhost:8000 pytest
 13. New command events are embedded with Ollama when the embedding model is available.
 Note: frontend execution runs inside the Docker backend container, so the default web CWD is `/app`. The CLI executes from the real host directory where `termind` is launched.
 
-## Remaining Product Work
+## Closure Readiness
 
-- **Operations:** add audit retention controls, token lifecycle management in the UI, and deployment monitoring before broader team use.
-- **Voice and context:** make host CLI speech-to-text setup cross-platform and expand project-specific command detection.
-- **Quality:** tune planner and semantic recall against representative user traces, with health checks and useful diagnostics.
+The implementation checkpoints are complete for a local-first alpha. Latest verification: `go test ./...`, `go vet ./...`, frontend typecheck/build, and all 26 Python integration tests passed. A live Compose build and run also succeeded; the frontend planned and streamed `pwd` through the executor, and an authenticated-mode CLI smoke test created and revoked a temporary token.
+
+For a **local single-user release**, the project is close: roughly 85-90% by feature scope. Remaining release work is mostly packaging and polish: cross-platform CLI/STT setup, clearer token lifecycle controls, audit retention, operational diagnostics, and testing on a clean install.
+
+For a **hosted or multi-user release**, it is materially farther along, roughly 60-70%. The main architecture decision is command execution from a user's host: current CLI policy checks cannot be enforced by the server. A hosted product needs a trusted local agent/worker enrollment model or must limit command execution to server-managed workspaces. It also needs a production token/session UX, explicit workspace sharing/roles if teams are supported, deployment monitoring and retention, and security testing of the remote configuration.
+
+Suggested final checkpoints:
+
+1. Choose and document the release target: local-only single-user or hosted/team use.
+2. If hosted, design and implement a trusted host-agent execution protocol before claiming workspace policy is enforceable for CLI commands.
+3. Finish user-facing token lifecycle and workspace onboarding for the chosen target.
+4. Add CI and release packaging, then validate a clean install and backup/restore/migration procedure.
