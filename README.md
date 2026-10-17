@@ -39,7 +39,7 @@ Implemented:
 
 Remaining development priorities:
 
-- Workspace ownership, workspace-specific command permissions, and authenticated CLI/frontend flows remain before remote or multi-user deployment. See [docs/security_model.md](docs/security_model.md).
+- Workspace ownership and owner-scoped API persistence are implemented. Workspace-specific command permissions and authenticated CLI/frontend flows remain before remote or multi-user deployment. See [docs/security_model.md](docs/security_model.md).
 - Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
 - Extend project context detection and tune semantic recall using real usage.
 
@@ -88,6 +88,11 @@ GET  /v1/context/project
 GET  /v1/auth/me
 POST /v1/auth/tokens
 DELETE /v1/auth/tokens/{token_id}
+GET  /v1/workspaces
+POST /v1/workspaces
+GET  /v1/workspaces/{workspace_id}
+PATCH /v1/workspaces/{workspace_id}
+POST /v1/workspaces/{workspace_id}/adopt
 ```
 
 The local default is unauthenticated and intended for one user on the same machine; direct host runs bind to loopback, and Compose publishes the API only on `127.0.0.1`. To exercise bearer authentication, set `TERMIND_BOOTSTRAP_TOKEN` to a unique random secret of at least 32 characters in `.env` and send it as `Authorization: Bearer ...`. Authenticated deployment additionally requires `LOCAL_ONLY_MODE=false`; do not expose it publicly until workspace ownership and permission checkpoints are complete, and put TLS in front of any remote deployment.
@@ -104,6 +109,8 @@ curl -sS http://localhost:8000/v1/auth/tokens \
 Use the returned token for later `/v1/auth/me` requests, and revoke it with `DELETE /v1/auth/tokens/{token_id}`. The CLI and browser do not yet manage or attach these tokens; that is a later checkpoint.
 
 `POST /v1/commands/execute` returns JSON by default. Send `Accept: text/event-stream` for `output` events followed by a `complete` event. Closing the request cancels the worker process group.
+
+The workspace schema migration is additive and runs once when the backend starts. Existing records are assigned to the reserved `usr_legacy_local` owner, not to the bootstrap identity; back up Postgres before upgrading. Adopt a legacy workspace explicitly with `POST /v1/workspaces/{workspace_id}/adopt`; the authenticated caller becomes its owner, and a duplicate root returns `409`.
 
 ## Architecture Snapshot
 
@@ -359,7 +366,7 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 ## Remaining Product Work
 
-- **Execution permissions:** add per-workspace command permissions and a stronger approval policy.
-- **Multi-user product:** add authentication, workspace ownership, and audit retention controls before remote or team deployment.
+- **Execution permissions:** add and enforce per-workspace command permissions and bind approvals to the exact command and workspace.
+- **Multi-user product:** add authenticated CLI/frontend credential and workspace flows, user onboarding, and audit retention controls before remote or team deployment.
 - **Voice and context:** make host CLI speech-to-text setup cross-platform, add live microphone input, and expand project-specific command detection.
 - **Quality:** tune planner and semantic recall against representative user traces, with health checks and useful diagnostics.

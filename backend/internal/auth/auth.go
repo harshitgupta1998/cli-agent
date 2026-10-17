@@ -49,8 +49,10 @@ func NewManager(repository Repository, bootstrapToken string, principal Principa
 
 func (m Manager) Enabled() bool { return len(m.bootstrapHash) > 0 }
 
+func (m Manager) LocalPrincipal() Principal { return m.bootstrap }
+
 func (m Manager) EnsureBootstrapUser(ctx context.Context) error {
-	if !m.Enabled() || m.repository == nil {
+	if m.repository == nil {
 		return nil
 	}
 	return m.repository.EnsureUser(ctx, m.bootstrap)

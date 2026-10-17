@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -26,11 +27,18 @@ import (
 var authMigrations embed.FS
 
 type Store interface {
-	EnsureProject(ctx context.Context, rootPath string) (string, error)
+	CreateWorkspace(ctx context.Context, ownerUserID string, name string, rootPath string) (models.Workspace, error)
+	ListWorkspaces(ctx context.Context, ownerUserID string) (models.WorkspaceListResponse, error)
+	GetWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error)
+	UpdateWorkspace(ctx context.Context, ownerUserID string, workspaceID string, name string) (models.Workspace, error)
+	AdoptLegacyWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error)
+	ResolveWorkspace(ctx context.Context, ownerUserID string, workspaceID string, cwd string, create bool) (models.Workspace, error)
+	SessionWorkspace(ctx context.Context, ownerUserID string, sessionID string) (models.Workspace, error)
+	EnsureProject(ctx context.Context, ownerUserID string, workspaceID string, rootPath string) (string, error)
 	CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error)
-	RecordMessage(ctx context.Context, sessionID string, role string, content string) error
-	ListMessages(ctx context.Context, sessionID string) (models.MessageListResponse, error)
-	ProjectCommands(ctx context.Context, cwd string) ([]models.ProjectCommand, error)
+	RecordMessage(ctx context.Context, ownerUserID string, sessionID string, role string, content string) error
+	ListMessages(ctx context.Context, ownerUserID string, sessionID string) (models.MessageListResponse, error)
+	ProjectCommands(ctx context.Context, ownerUserID string, workspaceID string, cwd string) ([]models.ProjectCommand, error)
 	RecordCommand(ctx context.Context, payload models.CommandRecordRequest) (models.CommandRecordResponse, error)
 	SearchCommands(ctx context.Context, payload models.MemorySearchRequest) (models.MemorySearchResponse, error)
 	BackfillCommandEmbeddings(ctx context.Context, payload models.EmbeddingBackfillRequest) (models.EmbeddingBackfillResponse, error)
@@ -178,8 +186,236 @@ func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
 
+var ErrWorkspaceNotFound = errors.New("workspace not found")
+var ErrWorkspaceConflict = errors.New("workspace conflicts with an existing workspace")
+
+func (s *PostgresStore) CreateWorkspace(ctx context.Context, ownerUserID string, name string, rootPath string) (models.Workspace, error) {
+	rootPath, err := canonicalWorkspacePath(rootPath)
+	if err != nil {
+		return models.Workspace{}, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = projectName(rootPath)
+	}
+	workspace := models.Workspace{ID: "wsp_" + randomID(), OwnerUserID: ownerUserID, Name: name, RootPath: rootPath, Status: "active"}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("begin create workspace: %w", err)
+	}
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO workspaces(id, owner_user_id, name, root_path)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (owner_user_id, root_path) DO UPDATE SET updated_at = workspaces.updated_at
+		RETURNING id, owner_user_id, name, root_path, status, created_at, updated_at
+	`, workspace.ID, ownerUserID, name, rootPath).Scan(
+		&workspace.ID, &workspace.OwnerUserID, &workspace.Name, &workspace.RootPath, &workspace.Status, &workspace.CreatedAt, &workspace.UpdatedAt,
+	)
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("create workspace: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_permissions(workspace_id) VALUES ($1) ON CONFLICT (workspace_id) DO NOTHING`, workspace.ID); err != nil {
+		return models.Workspace{}, fmt.Errorf("create workspace permissions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Workspace{}, fmt.Errorf("commit workspace: %w", err)
+	}
+	return workspace, nil
+}
+
+func (s *PostgresStore) ListWorkspaces(ctx context.Context, ownerUserID string) (models.WorkspaceListResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, owner_user_id, name, root_path, status, created_at, updated_at
+		FROM workspaces WHERE owner_user_id = $1 AND status = 'active'
+		ORDER BY name, id
+	`, ownerUserID)
+	if err != nil {
+		return models.WorkspaceListResponse{}, fmt.Errorf("list workspaces: %w", err)
+	}
+	defer rows.Close()
+	workspaces := []models.Workspace{}
+	for rows.Next() {
+		var workspace models.Workspace
+		if err := rows.Scan(&workspace.ID, &workspace.OwnerUserID, &workspace.Name, &workspace.RootPath, &workspace.Status, &workspace.CreatedAt, &workspace.UpdatedAt); err != nil {
+			return models.WorkspaceListResponse{}, fmt.Errorf("scan workspace: %w", err)
+		}
+		workspaces = append(workspaces, workspace)
+	}
+	if err := rows.Err(); err != nil {
+		return models.WorkspaceListResponse{}, fmt.Errorf("iterate workspaces: %w", err)
+	}
+	return models.WorkspaceListResponse{Workspaces: workspaces}, nil
+}
+
+func (s *PostgresStore) GetWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error) {
+	var workspace models.Workspace
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, owner_user_id, name, root_path, status, created_at, updated_at
+		FROM workspaces WHERE id = $1 AND owner_user_id = $2 AND status = 'active'
+	`, workspaceID, ownerUserID).Scan(
+		&workspace.ID, &workspace.OwnerUserID, &workspace.Name, &workspace.RootPath, &workspace.Status, &workspace.CreatedAt, &workspace.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Workspace{}, ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("get workspace: %w", err)
+	}
+	return workspace, nil
+}
+
+func (s *PostgresStore) UpdateWorkspace(ctx context.Context, ownerUserID string, workspaceID string, name string) (models.Workspace, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 128 {
+		return models.Workspace{}, errors.New("workspace_name_invalid")
+	}
+	var workspace models.Workspace
+	err := s.db.QueryRowContext(ctx, `
+		UPDATE workspaces SET name = $3, updated_at = now()
+		WHERE id = $1 AND owner_user_id = $2 AND status = 'active'
+		RETURNING id, owner_user_id, name, root_path, status, created_at, updated_at
+	`, workspaceID, ownerUserID, name).Scan(
+		&workspace.ID, &workspace.OwnerUserID, &workspace.Name, &workspace.RootPath, &workspace.Status, &workspace.CreatedAt, &workspace.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Workspace{}, ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("update workspace: %w", err)
+	}
+	return workspace, nil
+}
+
+func (s *PostgresStore) AdoptLegacyWorkspace(ctx context.Context, ownerUserID string, workspaceID string) (models.Workspace, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("begin workspace adoption: %w", err)
+	}
+	defer tx.Rollback()
+	var rootPath string
+	err = tx.QueryRowContext(ctx, `
+		SELECT root_path FROM workspaces
+		WHERE id = $1 AND owner_user_id = 'usr_legacy_local' AND status = 'active'
+		FOR UPDATE
+	`, workspaceID).Scan(&rootPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Workspace{}, ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("find legacy workspace: %w", err)
+	}
+	var existingID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM workspaces WHERE owner_user_id = $1 AND root_path = $2`, ownerUserID, rootPath).Scan(&existingID)
+	if err == nil {
+		return models.Workspace{}, ErrWorkspaceConflict
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return models.Workspace{}, fmt.Errorf("check adoption conflict: %w", err)
+	}
+	var workspace models.Workspace
+	err = tx.QueryRowContext(ctx, `
+		UPDATE workspaces SET owner_user_id = $2, updated_at = now()
+		WHERE id = $1
+		RETURNING id, owner_user_id, name, root_path, status, created_at, updated_at
+	`, workspaceID, ownerUserID).Scan(
+		&workspace.ID, &workspace.OwnerUserID, &workspace.Name, &workspace.RootPath, &workspace.Status, &workspace.CreatedAt, &workspace.UpdatedAt,
+	)
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("transfer workspace ownership: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET owner_user_id = $2 WHERE workspace_id = $1`, workspaceID, ownerUserID); err != nil {
+		return models.Workspace{}, fmt.Errorf("transfer session ownership: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE command_events SET owner_user_id = $2 WHERE workspace_id = $1`, workspaceID, ownerUserID); err != nil {
+		return models.Workspace{}, fmt.Errorf("transfer command history ownership: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE user_preferences SET owner_user_id = $2 WHERE workspace_id = $1`, workspaceID, ownerUserID); err != nil {
+		return models.Workspace{}, fmt.Errorf("transfer workspace preference ownership: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Workspace{}, fmt.Errorf("commit workspace adoption: %w", err)
+	}
+	return workspace, nil
+}
+
+func (s *PostgresStore) ResolveWorkspace(ctx context.Context, ownerUserID string, workspaceID string, cwd string, create bool) (models.Workspace, error) {
+	cwd, err := canonicalWorkspacePath(cwd)
+	if err != nil {
+		return models.Workspace{}, err
+	}
+	if workspaceID != "" {
+		workspace, err := s.GetWorkspace(ctx, ownerUserID, workspaceID)
+		if err != nil {
+			return models.Workspace{}, err
+		}
+		if !pathWithin(workspace.RootPath, cwd) {
+			return models.Workspace{}, ErrWorkspaceNotFound
+		}
+		return workspace, nil
+	}
+	list, err := s.ListWorkspaces(ctx, ownerUserID)
+	if err != nil {
+		return models.Workspace{}, err
+	}
+	var selected models.Workspace
+	for _, workspace := range list.Workspaces {
+		if pathWithin(workspace.RootPath, cwd) && len(workspace.RootPath) > len(selected.RootPath) {
+			selected = workspace
+		}
+	}
+	if selected.ID != "" {
+		return selected, nil
+	}
+	if !create {
+		return models.Workspace{}, ErrWorkspaceNotFound
+	}
+	return s.CreateWorkspace(ctx, ownerUserID, projectName(cwd), cwd)
+}
+
+func (s *PostgresStore) SessionWorkspace(ctx context.Context, ownerUserID string, sessionID string) (models.Workspace, error) {
+	var workspace models.Workspace
+	err := s.db.QueryRowContext(ctx, `
+		SELECT w.id, w.owner_user_id, w.name, w.root_path, w.status, w.created_at, w.updated_at
+		FROM sessions s
+		JOIN workspaces w ON w.id = s.workspace_id
+		WHERE s.id = $1 AND s.owner_user_id = $2 AND w.owner_user_id = $2 AND w.status = 'active'
+	`, sessionID, ownerUserID).Scan(
+		&workspace.ID, &workspace.OwnerUserID, &workspace.Name, &workspace.RootPath, &workspace.Status, &workspace.CreatedAt, &workspace.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Workspace{}, ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return models.Workspace{}, fmt.Errorf("resolve session workspace: %w", err)
+	}
+	return workspace, nil
+}
+
+func canonicalWorkspacePath(rootPath string) (string, error) {
+	if strings.TrimSpace(rootPath) == "" {
+		return "", errors.New("workspace_root_required")
+	}
+	absolute, err := filepath.Abs(filepath.Clean(rootPath))
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		absolute, err = filepath.Abs(resolved)
+		if err != nil {
+			return "", fmt.Errorf("resolve workspace symlinks: %w", err)
+		}
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func pathWithin(root string, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
 func (s *PostgresStore) CreateSession(ctx context.Context, payload models.SessionCreateRequest) (models.SessionCreateResponse, error) {
-	projectID, err := s.EnsureProject(ctx, payload.CWD)
+	projectID, err := s.EnsureProject(ctx, payload.OwnerUserID, payload.WorkspaceID, payload.CWD)
 	if err != nil {
 		return models.SessionCreateResponse{}, err
 	}
@@ -192,13 +428,17 @@ func (s *PostgresStore) CreateSession(ctx context.Context, payload models.Sessio
 		INSERT INTO sessions (
 			id,
 			project_id,
+			workspace_id,
+			owner_user_id,
 			cwd,
 			shell,
 			started_at
-		) VALUES ($1, $2, $3, $4, $5)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`,
 		sessionID,
 		projectID,
+		payload.WorkspaceID,
+		payload.OwnerUserID,
 		payload.CWD,
 		payload.Shell,
 		startedAt,
@@ -208,28 +448,34 @@ func (s *PostgresStore) CreateSession(ctx context.Context, payload models.Sessio
 	}
 
 	return models.SessionCreateResponse{
-		SessionID: sessionID,
-		ProjectID: projectID,
-		StartedAt: startedAt.Format(time.RFC3339),
+		SessionID:   sessionID,
+		ProjectID:   projectID,
+		WorkspaceID: payload.WorkspaceID,
+		StartedAt:   startedAt.Format(time.RFC3339),
 	}, nil
 }
 
-func (s *PostgresStore) RecordMessage(ctx context.Context, sessionID string, role string, content string) error {
+func (s *PostgresStore) RecordMessage(ctx context.Context, ownerUserID string, sessionID string, role string, content string) error {
 	_, err := s.db.ExecContext(
 		ctx,
 		`
 		INSERT INTO messages (
 			id,
 			session_id,
+			workspace_id,
 			role,
 			content,
 			created_at
-		) VALUES ($1, $2, $3, $4, now())
+		)
+		SELECT $1, s.id, s.workspace_id, $3, $4, now()
+		FROM sessions s
+		WHERE s.id = $2 AND s.owner_user_id = $5
 		`,
 		"msg_"+randomID(),
 		sessionID,
 		role,
 		content,
+		ownerUserID,
 	)
 	if err != nil {
 		return fmt.Errorf("record message: %w", err)
@@ -237,21 +483,23 @@ func (s *PostgresStore) RecordMessage(ctx context.Context, sessionID string, rol
 	return nil
 }
 
-func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) (models.MessageListResponse, error) {
+func (s *PostgresStore) ListMessages(ctx context.Context, ownerUserID string, sessionID string) (models.MessageListResponse, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
 		SELECT
-			id,
-			session_id,
-			role,
-			content,
-			created_at
-		FROM messages
-		WHERE session_id = $1
-		ORDER BY created_at ASC, id ASC
+			m.id,
+			m.session_id,
+			m.role,
+			m.content,
+			m.created_at
+		FROM messages m
+		JOIN sessions s ON s.id = m.session_id
+		WHERE m.session_id = $1 AND s.owner_user_id = $2 AND m.workspace_id = s.workspace_id
+		ORDER BY m.created_at ASC, m.id ASC
 		`,
 		sessionID,
+		ownerUserID,
 	)
 	if err != nil {
 		return models.MessageListResponse{}, fmt.Errorf("list messages: %w", err)
@@ -281,9 +529,17 @@ func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) (mod
 	return models.MessageListResponse{Messages: messages}, nil
 }
 
-func (s *PostgresStore) EnsureProject(ctx context.Context, rootPath string) (string, error) {
+func (s *PostgresStore) EnsureProject(ctx context.Context, ownerUserID string, workspaceID string, rootPath string) (string, error) {
+	rootPath, err := canonicalWorkspacePath(rootPath)
+	if err != nil {
+		return "", err
+	}
+	workspace, err := s.GetWorkspace(ctx, ownerUserID, workspaceID)
+	if err != nil || !pathWithin(workspace.RootPath, rootPath) {
+		return "", ErrWorkspaceNotFound
+	}
 	var existingID string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE root_path = $1`, rootPath).Scan(&existingID)
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE workspace_id = $1 AND root_path = $2`, workspaceID, rootPath).Scan(&existingID)
 	if err == nil {
 		return existingID, nil
 	}
@@ -300,12 +556,14 @@ func (s *PostgresStore) EnsureProject(ctx context.Context, rootPath string) (str
 			id,
 			name,
 			root_path,
+			workspace_id,
 			detected_stack_json
-		) VALUES ($1, $2, $3, '{}'::jsonb)
+		) VALUES ($1, $2, $3, $4, '{}'::jsonb)
 		`,
 		projectID,
 		name,
 		rootPath,
+		workspaceID,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create project: %w", err)
@@ -318,13 +576,16 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 	id := "cmd_" + randomID()
 	confirmation := normalizeConfirmation(payload.Confirmation)
 
-	_, err := s.db.ExecContext(
+	var persistedID string
+	err := s.db.QueryRowContext(
 		ctx,
 		`
 		INSERT INTO command_events (
 			id,
 			session_id,
 			project_id,
+			workspace_id,
+			owner_user_id,
 			user_request,
 			proposed_command,
 			final_command,
@@ -340,9 +601,12 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 			started_at,
 			ended_at,
 			tags_json
-		) VALUES (
-			$1, $2, (SELECT project_id FROM sessions WHERE id = $2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now(), '[]'::jsonb
 		)
+		SELECT $1, s.id, s.project_id, s.workspace_id, s.owner_user_id,
+			$3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now(), '[]'::jsonb
+		FROM sessions s
+		WHERE s.id = $2 AND s.owner_user_id = $15 AND s.workspace_id = $16
+		RETURNING id
 		`,
 		id,
 		payload.SessionID,
@@ -358,10 +622,16 @@ func (s *PostgresStore) RecordCommand(ctx context.Context, payload models.Comman
 		emptyToNull(payload.Stdout),
 		emptyToNull(payload.Stderr),
 		payload.DurationMS,
-	)
+		payload.OwnerUserID,
+		payload.WorkspaceID,
+	).Scan(&persistedID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.CommandRecordResponse{}, ErrWorkspaceNotFound
+	}
 	if err != nil {
 		return models.CommandRecordResponse{}, fmt.Errorf("record command event: %w", err)
 	}
+	id = persistedID
 	_ = s.upsertProjectCommand(ctx, payload)
 	embeddingStatus := s.recordCommandEmbedding(id, payload)
 
@@ -408,7 +678,7 @@ func (s *PostgresStore) upsertProjectCommand(ctx context.Context, payload models
 			$5,
 			CASE WHEN $4 > 0 THEN now() ELSE NULL END
 		FROM sessions
-		WHERE id = $6
+		WHERE id = $6 AND owner_user_id = $7 AND workspace_id = $8
 		ON CONFLICT (project_id, command)
 		DO UPDATE SET
 			success_count = project_commands.success_count + EXCLUDED.success_count,
@@ -424,6 +694,8 @@ func (s *PostgresStore) upsertProjectCommand(ctx context.Context, payload models
 		successCount,
 		failureCount,
 		payload.SessionID,
+		payload.OwnerUserID,
+		payload.WorkspaceID,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert project command: %w", err)
@@ -514,11 +786,15 @@ func (s *PostgresStore) BackfillCommandEmbeddings(ctx context.Context, payload m
 		LEFT JOIN command_embeddings emb
 			ON emb.command_event_id = ce.id
 			AND emb.embedding_model = $1
-		WHERE emb.command_event_id IS NULL
+		WHERE ce.owner_user_id = $2
+		  AND ($3 = '' OR ce.workspace_id = $3)
+		  AND emb.command_event_id IS NULL
 		ORDER BY ce.started_at ASC
-		LIMIT $2
+		LIMIT $4
 		`,
 		s.embedder.Model(),
+		payload.OwnerUserID,
+		payload.WorkspaceID,
 		limit,
 	)
 	if err != nil {
@@ -598,8 +874,8 @@ func embeddingInput(payload models.CommandRecordRequest) string {
 	return strings.Join(nonEmpty, "\n")
 }
 
-func (s *PostgresStore) ProjectCommands(ctx context.Context, cwd string) ([]models.ProjectCommand, error) {
-	projectID, err := s.EnsureProject(ctx, cwd)
+func (s *PostgresStore) ProjectCommands(ctx context.Context, ownerUserID string, workspaceID string, cwd string) ([]models.ProjectCommand, error) {
+	projectID, err := s.EnsureProject(ctx, ownerUserID, workspaceID, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -692,22 +968,27 @@ func (s *PostgresStore) keywordSearchCommands(ctx context.Context, payload model
 			COALESCE(exit_code, 0),
 			started_at,
 			CASE
-				WHEN LOWER(final_command) = LOWER($1) THEN 1.00
-				WHEN final_command ILIKE $2 THEN 0.92
-				WHEN user_request ILIKE $2 THEN 0.88
-				WHEN COALESCE(stdout_summary, '') ILIKE $2 THEN 0.72
-				WHEN COALESCE(stderr_summary, '') ILIKE $2 THEN 0.62
+				WHEN LOWER(final_command) = LOWER($3) THEN 1.00
+				WHEN final_command ILIKE $4 THEN 0.92
+				WHEN user_request ILIKE $4 THEN 0.88
+				WHEN COALESCE(stdout_summary, '') ILIKE $4 THEN 0.72
+				WHEN COALESCE(stderr_summary, '') ILIKE $4 THEN 0.62
 				ELSE 0.45
 			END AS score
 		FROM command_events
-		WHERE
-			final_command ILIKE $2
-			OR user_request ILIKE $2
-			OR COALESCE(stdout_summary, '') ILIKE $2
-			OR COALESCE(stderr_summary, '') ILIKE $2
+		WHERE owner_user_id = $1
+		  AND ($2 = '' OR workspace_id = $2)
+		  AND (
+			final_command ILIKE $4
+			OR user_request ILIKE $4
+			OR COALESCE(stdout_summary, '') ILIKE $4
+			OR COALESCE(stderr_summary, '') ILIKE $4
+		  )
 		ORDER BY score DESC, started_at DESC
-		LIMIT $3
+		LIMIT $5
 		`,
+		payload.OwnerUserID,
+		payload.WorkspaceID,
 		query,
 		likeQuery,
 		limit,
@@ -770,10 +1051,14 @@ func (s *PostgresStore) semanticSearchCommands(ctx context.Context, payload mode
 		FROM command_events ce
 		JOIN command_embeddings emb ON emb.command_event_id = ce.id
 		WHERE emb.embedding_model = $1
+		  AND ce.owner_user_id = $2
+		  AND ($3 = '' OR ce.workspace_id = $3)
 		ORDER BY ce.started_at DESC
-		LIMIT $2
+		LIMIT $4
 		`,
 		s.embedder.Model(),
+		payload.OwnerUserID,
+		payload.WorkspaceID,
 		200,
 	)
 	if err != nil {

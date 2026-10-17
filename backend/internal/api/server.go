@@ -10,6 +10,7 @@ import (
 
 	"github.com/harsgupta/termind/backend/internal/auth"
 	"github.com/harsgupta/termind/backend/internal/config"
+	"github.com/harsgupta/termind/backend/internal/memory"
 	"github.com/harsgupta/termind/backend/internal/models"
 	"github.com/harsgupta/termind/backend/internal/services"
 )
@@ -35,6 +36,11 @@ func (s Server) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/auth/me", s.getIdentity)
 	mux.HandleFunc("POST /v1/auth/tokens", s.createAPIToken)
 	mux.HandleFunc("DELETE /v1/auth/tokens/{token_id}", s.revokeAPIToken)
+	mux.HandleFunc("GET /v1/workspaces", s.listWorkspaces)
+	mux.HandleFunc("POST /v1/workspaces", s.createWorkspace)
+	mux.HandleFunc("GET /v1/workspaces/{workspace_id}", s.getWorkspace)
+	mux.HandleFunc("PATCH /v1/workspaces/{workspace_id}", s.updateWorkspace)
+	mux.HandleFunc("POST /v1/workspaces/{workspace_id}/adopt", s.adoptWorkspace)
 	mux.HandleFunc("GET /v1/config", s.getConfig)
 	mux.HandleFunc("POST /v1/sessions", s.createSession)
 	mux.HandleFunc("GET /v1/sessions/{session_id}/messages", s.listSessionMessages)
@@ -70,7 +76,12 @@ func (s Server) withAuthentication(next http.Handler) http.Handler {
 		header := strings.TrimSpace(r.Header.Get("Authorization"))
 		if header == "" {
 			if s.cfg.LocalOnlyMode == "true" {
-				next.ServeHTTP(w, r)
+				principal := auth.Principal{UserID: "usr_local", Name: "Local User"}
+				if s.auth != nil && s.auth.LocalPrincipal().UserID != "" {
+					principal = s.auth.LocalPrincipal()
+				}
+				ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 			writeError(w, http.StatusUnauthorized, "authentication_required")
@@ -143,6 +154,83 @@ func (s Server) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s Server) requestPrincipal(r *http.Request) auth.Principal {
+	if principal, ok := principalFromContext(r.Context()); ok {
+		return principal
+	}
+	return auth.Principal{UserID: "usr_local", Name: "Local User"}
+}
+
+func (s Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
+	principal := s.requestPrincipal(r)
+	writeJSON(w, http.StatusOK, s.agent.ListWorkspaces(principal.UserID))
+}
+
+func (s Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
+	var payload models.WorkspaceCreateRequest
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if strings.TrimSpace(payload.RootPath) == "" {
+		writeError(w, http.StatusBadRequest, "workspace_root_required")
+		return
+	}
+	principal := s.requestPrincipal(r)
+	workspace, err := s.agent.CreateWorkspace(principal.UserID, payload)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, workspace)
+}
+
+func (s Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
+	principal := s.requestPrincipal(r)
+	workspace, err := s.agent.GetWorkspace(principal.UserID, strings.TrimSpace(r.PathValue("workspace_id")))
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+func (s Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
+	var payload models.WorkspaceUpdateRequest
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	principal := s.requestPrincipal(r)
+	workspace, err := s.agent.UpdateWorkspace(principal.UserID, strings.TrimSpace(r.PathValue("workspace_id")), payload.Name)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+func (s Server) adoptWorkspace(w http.ResponseWriter, r *http.Request) {
+	principal := s.requestPrincipal(r)
+	workspace, err := s.agent.AdoptLegacyWorkspace(principal.UserID, strings.TrimSpace(r.PathValue("workspace_id")))
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+func writeWorkspaceError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, memory.ErrWorkspaceNotFound):
+		writeError(w, http.StatusNotFound, "workspace_not_found")
+	case errors.Is(err, memory.ErrWorkspaceConflict):
+		writeError(w, http.StatusConflict, "workspace_root_already_exists")
+	case err.Error() == "workspace_root_required", err.Error() == "workspace_name_invalid":
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeError(w, http.StatusServiceUnavailable, "workspace_storage_unavailable")
+	}
+}
+
 func (s Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "ok",
@@ -185,6 +273,14 @@ func (s Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(payload.Shell) == "" {
 		payload.Shell = "zsh"
 	}
+	principal := s.requestPrincipal(r)
+	workspace, err := s.agent.ResolveWorkspace(principal.UserID, payload.WorkspaceID, payload.CWD, true)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	payload.OwnerUserID = principal.UserID
+	payload.WorkspaceID = workspace.ID
 
 	writeJSON(w, http.StatusOK, s.agent.CreateSession(payload))
 }
@@ -196,7 +292,12 @@ func (s Server) listSessionMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.agent.ListMessages(sessionID))
+	principal := s.requestPrincipal(r)
+	if _, err := s.agent.SessionWorkspace(principal.UserID, sessionID); err != nil {
+		writeError(w, http.StatusNotFound, "session_not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agent.ListMessages(principal.UserID, sessionID))
 }
 
 func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +313,14 @@ func (s Server) submitRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "cwd_required")
 		return
 	}
+	principal := s.requestPrincipal(r)
+	workspace, err := s.resolveRequestWorkspace(principal, payload.SessionID, payload.WorkspaceID, payload.CWD, true)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	payload.OwnerUserID = principal.UserID
+	payload.WorkspaceID = workspace.ID
 
 	writeJSON(w, http.StatusOK, s.agent.CreateRequest(payload))
 }
@@ -229,6 +338,26 @@ func (s Server) executeCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "valid_confirmation_required")
 		return
 	}
+	principal := s.requestPrincipal(r)
+	if payload.SessionID != "" {
+		workspace, err := s.resolveRequestWorkspace(principal, payload.SessionID, payload.WorkspaceID, payload.CWD, false)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "workspace_not_found")
+			return
+		}
+		payload.WorkspaceID = workspace.ID
+	} else if payload.WorkspaceID != "" {
+		workspace, err := s.agent.ResolveWorkspace(principal.UserID, payload.WorkspaceID, payload.CWD, false)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "workspace_not_found")
+			return
+		}
+		payload.WorkspaceID = workspace.ID
+	} else if s.cfg.LocalOnlyMode != "true" {
+		writeError(w, http.StatusBadRequest, "session_required")
+		return
+	}
+	payload.OwnerUserID = principal.UserID
 
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		s.streamCommand(w, r, payload)
@@ -286,10 +415,22 @@ func (s Server) recordCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "final_command_required")
 		return
 	}
+	if strings.TrimSpace(payload.SessionID) == "" {
+		writeError(w, http.StatusBadRequest, "session_id_required")
+		return
+	}
 	if strings.TrimSpace(payload.CWD) == "" {
 		writeError(w, http.StatusBadRequest, "cwd_required")
 		return
 	}
+	principal := s.requestPrincipal(r)
+	workspace, err := s.resolveRequestWorkspace(principal, payload.SessionID, payload.WorkspaceID, payload.CWD, false)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workspace_not_found")
+		return
+	}
+	payload.OwnerUserID = principal.UserID
+	payload.WorkspaceID = workspace.ID
 
 	writeJSON(w, http.StatusOK, s.agent.RecordCommand(payload))
 }
@@ -303,6 +444,28 @@ func (s Server) searchMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query_required")
 		return
 	}
+	principal := s.requestPrincipal(r)
+	if payload.WorkspaceID != "" && strings.TrimSpace(payload.CWD) == "" {
+		if _, err := s.agent.GetWorkspace(principal.UserID, payload.WorkspaceID); err != nil {
+			writeError(w, http.StatusNotFound, "workspace_not_found")
+			return
+		}
+	} else if strings.TrimSpace(payload.CWD) != "" {
+		workspace, err := s.agent.ResolveWorkspace(principal.UserID, payload.WorkspaceID, payload.CWD, false)
+		if err != nil {
+			if errors.Is(err, memory.ErrWorkspaceNotFound) {
+				writeJSON(w, http.StatusOK, models.MemorySearchResponse{Results: []models.MemorySearchResult{}})
+				return
+			}
+			writeWorkspaceError(w, err)
+			return
+		}
+		payload.WorkspaceID = workspace.ID
+	} else {
+		writeError(w, http.StatusBadRequest, "workspace_or_cwd_required")
+		return
+	}
+	payload.OwnerUserID = principal.UserID
 
 	writeJSON(w, http.StatusOK, s.agent.SearchMemory(payload))
 }
@@ -312,6 +475,14 @@ func (s Server) backfillCommandEmbeddings(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
+	principal := s.requestPrincipal(r)
+	if payload.WorkspaceID != "" {
+		if _, err := s.agent.GetWorkspace(principal.UserID, payload.WorkspaceID); err != nil {
+			writeError(w, http.StatusNotFound, "workspace_not_found")
+			return
+		}
+	}
+	payload.OwnerUserID = principal.UserID
 
 	writeJSON(w, http.StatusOK, s.agent.BackfillCommandEmbeddings(payload))
 }
@@ -335,7 +506,32 @@ func (s Server) getProjectContext(w http.ResponseWriter, r *http.Request) {
 		cwd = "/Users/example/projects/termind"
 	}
 
-	writeJSON(w, http.StatusOK, s.agent.ProjectContext(cwd))
+	principal := s.requestPrincipal(r)
+	workspace, err := s.agent.ResolveWorkspace(principal.UserID, "", cwd, true)
+	if err != nil {
+		writeWorkspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agent.ProjectContext(principal.UserID, workspace.ID, cwd))
+}
+
+func (s Server) resolveRequestWorkspace(principal auth.Principal, sessionID string, workspaceID string, cwd string, create bool) (models.Workspace, error) {
+	if sessionID != "" {
+		workspace, err := s.agent.SessionWorkspace(principal.UserID, sessionID)
+		if err == nil {
+			if workspaceID != "" && workspaceID != workspace.ID {
+				return models.Workspace{}, memory.ErrWorkspaceNotFound
+			}
+			if cwd != "" {
+				return s.agent.ResolveWorkspace(principal.UserID, workspace.ID, cwd, false)
+			}
+			return workspace, nil
+		}
+		if s.cfg.LocalOnlyMode != "true" {
+			return models.Workspace{}, memory.ErrWorkspaceNotFound
+		}
+	}
+	return s.agent.ResolveWorkspace(principal.UserID, workspaceID, cwd, create)
 }
 
 func (s Server) getPhases(w http.ResponseWriter, r *http.Request) {

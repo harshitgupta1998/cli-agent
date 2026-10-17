@@ -10,7 +10,7 @@ def test_phase_one_review_run_remember_flow(api):
     session_status, session = api.post(
         "/v1/sessions",
         {
-            "cwd": DEFAULT_CWD,
+            "cwd": BACKEND_CWD,
             "shell": "zsh",
         },
     )
@@ -23,7 +23,7 @@ def test_phase_one_review_run_remember_flow(api):
         {
             "session_id": session["session_id"],
             "input": "what is using port 8000?",
-            "cwd": DEFAULT_CWD,
+            "cwd": BACKEND_CWD,
         },
     )
     assert request_status == 200
