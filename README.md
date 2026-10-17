@@ -37,6 +37,7 @@ Implemented:
 - Phase 6.5: route confirmed transcripts through planning and policy
 - Phase 6.6: host CLI voice command wrapper
 - S1-S4: bearer auth, owner-scoped workspaces, per-workspace command permissions, and one-time approval binding
+- S5: authenticated CLI and browser clients, workspace selection, voice parity, and client-side host CLI policy checks
 
 Remaining development priorities:
 
@@ -98,7 +99,7 @@ GET  /v1/workspaces/{workspace_id}/permissions
 PUT  /v1/workspaces/{workspace_id}/permissions
 ```
 
-The local default is unauthenticated and intended for one user on the same machine; direct host runs bind to loopback, and Compose publishes the API only on `127.0.0.1`. To exercise bearer authentication, set `TERMIND_BOOTSTRAP_TOKEN` to a unique random secret of at least 32 characters in `.env` and send it as `Authorization: Bearer ...`. Authenticated deployment additionally requires `LOCAL_ONLY_MODE=false` and a stable random `COMMAND_APPROVAL_SECRET` of at least 32 characters; put TLS in front of any remote deployment. Authenticated CLI/frontend credential and workspace selection flows are not implemented yet, so remote deployment remains premature.
+The local default is unauthenticated and intended for one user on the same machine; direct host runs bind to loopback, and Compose publishes the API only on `127.0.0.1`. To exercise bearer authentication, set `TERMIND_BOOTSTRAP_TOKEN` to a unique random secret of at least 32 characters in `.env` and send it as `Authorization: Bearer ...`. Authenticated deployment additionally requires `LOCAL_ONLY_MODE=false` and a stable random `COMMAND_APPROVAL_SECRET` of at least 32 characters; put TLS in front of any remote deployment.
 
 Create a persistent API token using the bootstrap token. The returned `secret` is shown only once; Postgres stores its SHA-256 hash:
 
@@ -109,7 +110,7 @@ curl -sS http://localhost:8000/v1/auth/tokens \
   -d '{"name":"my-cli"}'
 ```
 
-Use the returned token for later `/v1/auth/me` requests, and revoke it with `DELETE /v1/auth/tokens/{token_id}`. The CLI and browser do not yet manage or attach these tokens; that is a later checkpoint.
+Use the returned token for later `/v1/auth/me` requests, and revoke it with `DELETE /v1/auth/tokens/{token_id}`.
 
 `POST /v1/commands/execute` returns JSON by default. Send `Accept: text/event-stream` for `output` events followed by a `complete` event. Closing the request cancels the worker process group.
 
@@ -129,7 +130,7 @@ Host CLI ─> Go API for planning/policy ─> local host shell ─> Go API recor
 
 ## CLI Integration
 
-The Docker backend plans commands and applies policy. The local CLI executes approved commands on your machine.
+The Docker backend plans commands and applies policy. The local CLI executes approved commands on your machine. It also fetches workspace permissions and checks the command, working directory, execution mode, timeout, and output bounds before starting the host process. Because this executor runs on the client machine, this check is a client-side guardrail, not a server-enforced sandbox; use the API executor for commands that require server-enforced workspace policy.
 
 Build the CLI:
 
@@ -169,6 +170,19 @@ Optional API override:
 ```bash
 TERMIND_API_BASE_URL=http://localhost:8000 ../bin/termind
 ```
+
+Authenticated CLI use:
+
+```bash
+export TERMIND_API_TOKEN="<token returned by POST /v1/auth/tokens>"
+../bin/termind -once "what is using port 8000?"
+```
+
+The CLI sends the bearer token on all API requests, including speech transcription. It resolves the current workspace from the session created for the current directory. To choose a particular owned workspace, set `TERMIND_WORKSPACE_ID` or pass `-workspace <workspace-id>`. Workspace IDs can be listed with `GET /v1/workspaces`. The `-yes` flag never skips a workspace's `confirmation_required` policy.
+
+In the browser, paste the API token into the token field in the sidebar. It is kept in `sessionStorage` for that tab, not persisted across browser sessions. Use the workspace selector in the workbench header to switch owned workspaces; typed requests, microphone transcription, planning, memory lookup, execution streams, and cancellation all use the same bearer identity and active workspace.
+
+Do not treat host CLI policy checks as a multi-user security boundary. A local user can execute commands outside Termind, and the remote server cannot sandbox a process started by a client. Remote and shared use should route execution through the backend worker and keep its workspace paths mounted and authorized there.
 
 For convenience, add it to your shell path:
 
@@ -369,6 +383,6 @@ Note: frontend execution runs inside the Docker backend container, so the defaul
 
 ## Remaining Product Work
 
-- **Client integration:** add authenticated CLI/frontend credential and workspace selection, user onboarding, and audit retention controls before remote or team deployment.
-- **Voice and context:** make host CLI speech-to-text setup cross-platform, add live microphone input, and expand project-specific command detection.
+- **Operations:** add audit retention controls, token lifecycle management in the UI, and deployment monitoring before broader team use.
+- **Voice and context:** make host CLI speech-to-text setup cross-platform and expand project-specific command detection.
 - **Quality:** tune planner and semantic recall against representative user traces, with health checks and useful diagnostics.

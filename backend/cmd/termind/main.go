@@ -18,10 +18,12 @@ import (
 	"time"
 
 	"github.com/harsgupta/termind/backend/internal/models"
+	"github.com/harsgupta/termind/backend/internal/policy"
 )
 
 type APIClient struct {
 	baseURL string
+	token   string
 	http    *http.Client
 }
 
@@ -34,6 +36,7 @@ type localResult struct {
 
 func main() {
 	apiURL := flag.String("api", env("TERMIND_API_BASE_URL", "http://localhost:8000"), "Termind API base URL")
+	workspaceID := flag.String("workspace", os.Getenv("TERMIND_WORKSPACE_ID"), "Workspace ID to use")
 	once := flag.String("once", "", "Run one request and exit")
 	voiceAudio := flag.String("voice-audio", "", "Transcribe a local audio file, confirm the transcript, plan it, and exit")
 	voiceLanguage := flag.String("voice-language", "en", "Language hint for -voice-audio transcription")
@@ -50,6 +53,7 @@ func main() {
 
 	client := APIClient{
 		baseURL: strings.TrimRight(*apiURL, "/"),
+		token:   strings.TrimSpace(os.Getenv("TERMIND_API_TOKEN")),
 		http:    &http.Client{Timeout: 10 * time.Second},
 	}
 
@@ -58,7 +62,7 @@ func main() {
 	}
 
 	if *backfillEmbeddings {
-		response, err := client.backfillCommandEmbeddings(models.EmbeddingBackfillRequest{Limit: *backfillLimit})
+		response, err := client.backfillCommandEmbeddings(models.EmbeddingBackfillRequest{Limit: *backfillLimit, WorkspaceID: *workspaceID})
 		if err != nil {
 			exitWithError(err)
 		}
@@ -67,13 +71,13 @@ func main() {
 		return
 	}
 
-	session, err := client.createSession(cwd)
+	session, err := client.createSession(cwd, *workspaceID)
 	if err != nil {
 		exitWithError(err)
 	}
 
 	if strings.TrimSpace(*once) != "" {
-		if err := handleRequest(client, session.SessionID, cwd, *once, *yes, *timeout); err != nil {
+		if err := handleRequest(client, session.SessionID, session.WorkspaceID, cwd, *once, *yes, *timeout); err != nil {
 			exitWithError(err)
 		}
 		return
@@ -84,7 +88,7 @@ func main() {
 		if err != nil {
 			exitWithError(err)
 		}
-		if err := handleRequest(client, session.SessionID, cwd, transcript, *yes, *timeout); err != nil {
+		if err := handleRequest(client, session.SessionID, session.WorkspaceID, cwd, transcript, *yes, *timeout); err != nil {
 			exitWithError(err)
 		}
 		return
@@ -108,7 +112,7 @@ func main() {
 			break
 		}
 
-		if err := handleRequest(client, session.SessionID, cwd, input, *yes, *timeout); err != nil {
+		if err := handleRequest(client, session.SessionID, session.WorkspaceID, cwd, input, *yes, *timeout); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 	}
@@ -118,11 +122,12 @@ func main() {
 	}
 }
 
-func handleRequest(client APIClient, sessionID string, cwd string, input string, autoYes bool, timeout time.Duration) error {
+func handleRequest(client APIClient, sessionID string, workspaceID string, cwd string, input string, autoYes bool, timeout time.Duration) error {
 	plan, err := client.createRequest(models.UserRequestCreate{
-		SessionID: sessionID,
-		Input:     input,
-		CWD:       cwd,
+		SessionID:   sessionID,
+		WorkspaceID: workspaceID,
+		Input:       input,
+		CWD:         cwd,
 	})
 	if err != nil {
 		return err
@@ -134,12 +139,24 @@ func handleRequest(client APIClient, sessionID string, cwd string, input string,
 	}
 
 	if plan.Intent == models.IntentSearchHistory || strings.TrimSpace(plan.Plan.Command) == "" {
-		return printMemorySearch(client, input, cwd)
+		return printMemorySearch(client, input, cwd, workspaceID)
 	}
 
 	printPlan(plan)
 
-	approved := autoYes && plan.Policy.Risk == models.RiskSafe
+	workspace, err := client.getWorkspace(workspaceID)
+	if err != nil {
+		return fmt.Errorf("load workspace policy: %w", err)
+	}
+	permissions, err := client.getWorkspacePermissions(workspaceID)
+	if err != nil {
+		return fmt.Errorf("load workspace permissions: %w", err)
+	}
+	if code, message := policy.EvaluateWorkspaceCommand(permissions, workspace.RootPath, cwd, plan.Plan.Command); code != "" {
+		return fmt.Errorf("workspace policy denied command (%s): %s", code, message)
+	}
+
+	approved := autoYes && plan.Policy.Risk == models.RiskSafe && permissions.ExecutionMode != policy.ExecutionConfirmationRequired
 	if !approved {
 		var err error
 		approved, err = askApproval()
@@ -152,8 +169,10 @@ func handleRequest(client APIClient, sessionID string, cwd string, input string,
 		fmt.Println("Skipped.")
 		return nil
 	}
-
-	result, err := runLocalCommand(cwd, plan.Plan.Command, timeout)
+	if limit := time.Duration(permissions.MaxDurationSeconds) * time.Second; timeout > limit {
+		timeout = limit
+	}
+	result, err := runLocalCommand(cwd, plan.Plan.Command, timeout, permissions.MaxOutputBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "command error: %v\n", err)
 	}
@@ -161,6 +180,7 @@ func handleRequest(client APIClient, sessionID string, cwd string, input string,
 
 	record, recordErr := client.recordCommand(models.CommandRecordRequest{
 		SessionID:       sessionID,
+		WorkspaceID:     workspaceID,
 		RequestID:       plan.RequestID,
 		UserRequest:     input,
 		ProposedCommand: plan.Plan.Command,
@@ -333,7 +353,7 @@ func askTranscriptApproval() (bool, error) {
 	return answer == "" || answer == "y" || answer == "yes", nil
 }
 
-func runLocalCommand(cwd string, command string, timeout time.Duration) (localResult, error) {
+func runLocalCommand(cwd string, command string, timeout time.Duration, maxOutputBytes int) (localResult, error) {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -341,10 +361,10 @@ func runLocalCommand(cwd string, command string, timeout time.Duration) (localRe
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = cwd
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &limitedBuffer{limit: maxOutputBytes}
+	stderr := &limitedBuffer{limit: maxOutputBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 	duration := int(time.Since(started).Milliseconds())
@@ -357,7 +377,7 @@ func runLocalCommand(cwd string, command string, timeout time.Duration) (localRe
 			exitCode = exitErr.ExitCode()
 		}
 		if ctx.Err() == context.DeadlineExceeded {
-			stderr.WriteString(fmt.Sprintf("\ncommand timed out after %s", timeout))
+			_, _ = stderr.WriteString(fmt.Sprintf("\ncommand timed out after %s", timeout))
 		}
 	}
 
@@ -369,11 +389,43 @@ func runLocalCommand(cwd string, command string, timeout time.Duration) (localRe
 	}, err
 }
 
-func printMemorySearch(client APIClient, query string, cwd string) error {
+type limitedBuffer struct {
+	bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *limitedBuffer) Write(data []byte) (int, error) {
+	if b.limit <= 0 {
+		b.limit = 1024 * 1024
+	}
+	remaining := b.limit - b.Len()
+	if remaining <= 0 {
+		b.truncated = true
+		return len(data), nil
+	}
+	if len(data) > remaining {
+		_, _ = b.Buffer.Write(data[:remaining])
+		b.truncated = true
+		return len(data), nil
+	}
+	return b.Buffer.Write(data)
+}
+
+func (b *limitedBuffer) String() string {
+	value := b.Buffer.String()
+	if b.truncated {
+		value += "\n[output truncated by workspace limit]"
+	}
+	return value
+}
+
+func printMemorySearch(client APIClient, query string, cwd string, workspaceID string) error {
 	response, err := client.searchMemory(models.MemorySearchRequest{
-		Query: query,
-		CWD:   cwd,
-		Limit: 5,
+		Query:       query,
+		CWD:         cwd,
+		Limit:       5,
+		WorkspaceID: workspaceID,
 	})
 	if err != nil {
 		return err
@@ -410,9 +462,21 @@ func (c APIClient) waitHealthy(ctx context.Context) error {
 	}
 }
 
-func (c APIClient) createSession(cwd string) (models.SessionCreateResponse, error) {
+func (c APIClient) createSession(cwd string, workspaceID string) (models.SessionCreateResponse, error) {
 	var response models.SessionCreateResponse
-	err := c.post("/v1/sessions", models.SessionCreateRequest{CWD: cwd, Shell: env("SHELL", "sh")}, &response)
+	err := c.post("/v1/sessions", models.SessionCreateRequest{CWD: cwd, Shell: env("SHELL", "sh"), WorkspaceID: workspaceID}, &response)
+	return response, err
+}
+
+func (c APIClient) getWorkspace(workspaceID string) (models.Workspace, error) {
+	var response models.Workspace
+	err := c.get("/v1/workspaces/"+workspaceID, &response)
+	return response, err
+}
+
+func (c APIClient) getWorkspacePermissions(workspaceID string) (models.WorkspacePermissions, error) {
+	var response models.WorkspacePermissions
+	err := c.get("/v1/workspaces/"+workspaceID+"/permissions", &response)
 	return response, err
 }
 
@@ -491,6 +555,9 @@ func (c APIClient) do(request *http.Request, target any) error {
 }
 
 func (c APIClient) doWithStatus(request *http.Request, target any) (int, error) {
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		return 0, err

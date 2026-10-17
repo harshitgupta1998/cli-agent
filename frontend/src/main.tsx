@@ -22,6 +22,12 @@ import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const defaultCwd = '/app';
+const TOKEN_KEY = 'termind_api_token';
+
+function authHeaders(): Record<string, string> {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 type RiskLevel = 'safe' | 'modifying' | 'destructive' | 'privileged' | 'networked' | 'unknown';
 type RiskTone = 'good' | 'warn' | 'bad';
@@ -177,11 +183,24 @@ type VoiceTranscriptResponse = {
   message: string;
 };
 
+type Workspace = { id: string; name: string; root_path: string; status: string };
+type WorkspacePermissions = {
+  workspace_id: string;
+  policy_version: number;
+  execution_mode: string;
+  writable_roots: string[];
+  allowed_commands: string[];
+  denied_commands: string[];
+  max_duration_seconds: number;
+  max_output_bytes: number;
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders(),
       ...init?.headers,
     },
   });
@@ -217,6 +236,11 @@ function bestRecordingMimeType(acceptedMimeTypes: string[]): string {
 
 function App() {
   const [sessionId, setSessionId] = useState('ses_demo');
+  const [workspaceId, setWorkspaceId] = useState('');
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacePermissions, setWorkspacePermissions] = useState<WorkspacePermissions | null>(null);
+  const [tokenInput, setTokenInput] = useState('');
+  const [authenticated, setAuthenticated] = useState(Boolean(sessionStorage.getItem(TOKEN_KEY)));
   const [input, setInput] = useState('what is using port 8000?');
   const [cwd, setCwd] = useState(defaultCwd);
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -252,11 +276,22 @@ function App() {
       const voice = await requestJson<VoiceConfig>('/v1/voice/config');
       setVoiceConfig(voice);
 
-      const session = await requestJson<{ session_id: string; project_id: string; started_at: string }>('/v1/sessions', {
+      const workspaceList = await requestJson<{ workspaces: Workspace[] }>('/v1/workspaces');
+      setWorkspaces(workspaceList.workspaces);
+      const matchingWorkspace = workspaceList.workspaces.find((workspace) => workspace.root_path === cwd);
+      const session = await requestJson<{ session_id: string; project_id: string; workspace_id: string; started_at: string }>('/v1/sessions', {
         method: 'POST',
-        body: JSON.stringify({ cwd, shell: 'zsh' }),
+        body: JSON.stringify({ cwd, shell: 'zsh', workspace_id: matchingWorkspace?.id }),
       });
       setSessionId(session.session_id);
+      setWorkspaceId(session.workspace_id);
+      const [workspace, permissions] = await Promise.all([
+        requestJson<Workspace>(`/v1/workspaces/${session.workspace_id}`),
+        requestJson<WorkspacePermissions>(`/v1/workspaces/${session.workspace_id}/permissions`),
+      ]);
+      setCwd(workspace.root_path);
+      setWorkspacePermissions(permissions);
+      setWorkspaces((current) => current.some((item) => item.id === workspace.id) ? current : [...current, workspace]);
 
       const context = await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(cwd)}`);
       setProject(context);
@@ -271,7 +306,31 @@ function App() {
     }
 
     boot().catch((error: Error) => setBootError(error.message));
-  }, []);
+  }, [authenticated]);
+
+  function connectToken(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    sessionStorage.setItem(TOKEN_KEY, tokenInput.trim());
+    setAuthenticated(true);
+    window.location.reload();
+  }
+
+  async function selectWorkspace(id: string) {
+    const workspace = workspaces.find((item) => item.id === id);
+    if (!workspace) return;
+    setWorkspaceId(id);
+    setCwd(workspace.root_path);
+    const session = await requestJson<{ session_id: string; workspace_id: string }>('/v1/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ cwd: workspace.root_path, shell: 'zsh', workspace_id: id }),
+    });
+    setSessionId(session.session_id);
+    setWorkspacePermissions(await requestJson<WorkspacePermissions>(`/v1/workspaces/${id}/permissions`));
+    setProject(await requestJson<ProjectContext>(`/v1/context/project?cwd=${encodeURIComponent(workspace.root_path)}`));
+    setMemory([]);
+    setPlan(null);
+    setExecution(null);
+  }
 
   const currentPhase = useMemo(() => {
     return phaseResponse?.phases.find((phase) => phase.id === phaseResponse.current_phase);
@@ -296,6 +355,7 @@ function App() {
         method: 'POST',
         body: JSON.stringify({
           session_id: sessionId,
+          workspace_id: workspaceId,
           input: prompt,
           cwd,
         }),
@@ -335,10 +395,11 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/v1/commands/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authHeaders() },
         signal: controller.signal,
         body: JSON.stringify({
           session_id: sessionId,
+          workspace_id: workspaceId,
           request_id: plan.request_id,
           approval_token: plan.approval_token,
           user_request: input,
@@ -427,7 +488,7 @@ function App() {
       method: 'POST',
       body: JSON.stringify({
         query,
-        project_id: 'prj_demo',
+        workspace_id: workspaceId,
         cwd,
         limit: 5,
       }),
@@ -502,7 +563,7 @@ function App() {
       const mimeType = blob.type || bestRecordingMimeType(voiceConfig?.accepted_mime_types || []);
       const response = await fetch(`${API_BASE_URL}${voiceConfig?.transcript_endpoint || '/v1/voice/transcripts'}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           audio_base64: audioBase64,
           mime_type: mimeType,
@@ -531,7 +592,7 @@ function App() {
     try {
       const response = await requestJson<EmbeddingBackfillResponse>('/v1/memory/embeddings/backfill', {
         method: 'POST',
-        body: JSON.stringify({ limit: 50 }),
+        body: JSON.stringify({ limit: 50, workspace_id: workspaceId }),
       });
       setBackfill(response);
       await searchMemory(input);
@@ -560,6 +621,11 @@ function App() {
         </nav>
 
         <section className="status-panel">
+          <form onSubmit={connectToken} className="auth-form">
+            <label htmlFor="api-token">{authenticated ? 'Authenticated' : 'API token'}</label>
+            <input id="api-token" type="password" autoComplete="off" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder={authenticated ? 'Connected for this tab' : 'Paste token to connect'} />
+            <button type="submit" disabled={!tokenInput.trim()}>Connect</button>
+          </form>
           <div className="status-line">
             <span>Mode</span>
             <strong>Local only</strong>
@@ -592,11 +658,15 @@ function App() {
           <div>
             <h1>Command workbench</h1>
             <p>{project?.root_path || cwd}</p>
+            <select aria-label="Active workspace" value={workspaceId} onChange={(event) => void selectWorkspace(event.target.value)}>
+              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+            </select>
           </div>
           <div className="topbar-actions">
             <div className="pill"><Cpu size={16} /> {config?.mode || 'checking runtime'}</div>
             <div className="pill"><Layers3 size={16} /> {phaseResponse?.current_phase || 'phase_6'}</div>
             <div className="pill"><Clock3 size={16} /> Session {sessionId}</div>
+            {workspacePermissions && <div className="pill"><ShieldCheck size={16} /> {workspacePermissions.execution_mode} · {workspacePermissions.max_duration_seconds}s</div>}
           </div>
         </header>
 

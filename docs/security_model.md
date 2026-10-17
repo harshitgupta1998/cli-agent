@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the security contract for authentication and workspace permissions. S1-S4 are implemented: bearer identity, owner-scoped workspace data, typed workspace permission settings, server-side enforcement, and one-time command approval grants. Authenticated CLI/frontend credential and workspace selection flows remain before remote or multi-user use should be considered ready.
+This document defines the security contract for authentication and workspace permissions. S1-S5 are implemented: bearer identity, owner-scoped workspace data, typed workspace permission settings, backend execution enforcement, one-time approval grants, and authenticated client flows. The host CLI remains a trusted local client and is not a server-enforced execution boundary.
 
 ## Deployment modes
 
@@ -41,9 +41,15 @@ For each execution, the backend must validate, in order:
 5. Required user confirmation is valid and applies to this exact command, workspace, and request; changing any of these invalidates the approval.
 6. The isolated executor accepts the resolved execution request and records the decision and outcome for audit.
 
-Permission denial happens before process creation on backend execution routes. Remote approval grants are bound to the current policy version, expire after ten minutes, and can be consumed only once. In `restricted_safe_autocommand`, commands default to deny unless their executable is explicitly allowed; `confirmation_required` permits commands through the baseline safety checks only after explicit approval. Existing safety blocks remain in force as an additional layer, not as a substitute for workspace permissions. The host CLI still executes locally and does not yet consume workspace policies; that is part of S5.
+Permission denial happens before process creation on backend execution routes. Remote approval grants are bound to the current policy version, expire after ten minutes, and can be consumed only once. In `restricted_safe_autocommand`, commands default to deny unless their executable is explicitly allowed; `confirmation_required` permits commands through the baseline safety checks only after explicit approval. Existing safety blocks remain in force as an additional layer, not as a substitute for workspace permissions. The host CLI fetches and evaluates workspace policy, but because it executes locally it does not consume the backend's one-time approval grant; see the client execution boundary above.
 
 Approved commands remain capable of modifying files inside their authorized writable workspace. The product does not promise safe execution of arbitrary untrusted shell code merely because a command was approved.
+
+## Client execution boundary
+
+The web client sends execution to the backend worker, where workspace permissions, approval binding, filesystem boundaries, resource limits, and cancellation are enforced server-side. The host CLI instead starts a process on the user's machine. It fetches the selected workspace policy and evaluates it before execution, applies the configured timeout/output bounds, and keeps explicit confirmation even with `-yes` when the workspace mode is `confirmation_required`. These are useful workflow guardrails but cannot constrain a modified CLI or prevent the user from invoking a shell directly. Do not expose host CLI execution as a remotely trusted or multi-user security boundary; use the backend worker when server enforcement is required.
+
+The CLI reads its bearer credential from `TERMIND_API_TOKEN`; it does not persist credentials itself. The browser accepts a bearer token interactively and keeps it in tab-scoped `sessionStorage`. Treat browser XSS as credential compromise, serve the UI over TLS for remote use, and revoke tokens that are no longer needed. Voice transcription follows the same bearer-authenticated API client path as typed requests.
 
 ## Initial workspace policy
 

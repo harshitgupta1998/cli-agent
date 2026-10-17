@@ -81,6 +81,10 @@ func TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript(t *testing.T) {
 	recorded := make(chan models.CommandRecordRequest, 1)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer cli-test-token" {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 
 		switch r.URL.Path {
@@ -139,6 +143,16 @@ func TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript(t *testing.T) {
 				},
 			})
 
+		case "/v1/workspaces/wsp_voice_e2e":
+			_ = json.NewEncoder(w).Encode(models.Workspace{ID: "wsp_voice_e2e", RootPath: dir})
+
+		case "/v1/workspaces/wsp_voice_e2e/permissions":
+			_ = json.NewEncoder(w).Encode(models.WorkspacePermissions{
+				WorkspaceID: "wsp_voice_e2e", PolicyVersion: 1, ExecutionMode: "restricted_safe_autocommand",
+				AllowedCommands:    []string{"printf"},
+				MaxDurationSeconds: 30, MaxOutputBytes: 1024 * 1024,
+			})
+
 		case "/v1/commands/record":
 			if r.Method != http.MethodPost {
 				t.Fatalf("record method = %s, want POST", r.Method)
@@ -165,6 +179,7 @@ func TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript(t *testing.T) {
 
 	client := APIClient{
 		baseURL: server.URL,
+		token:   "cli-test-token",
 		http:    server.Client(),
 	}
 
@@ -176,7 +191,7 @@ func TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript(t *testing.T) {
 		t.Fatalf("confirmed transcript = %q, want %q", confirmedTranscript, transcript)
 	}
 
-	if err := handleRequest(client, "ses_voice_e2e", dir, confirmedTranscript, true, 5*time.Second); err != nil {
+	if err := handleRequest(client, "ses_voice_e2e", "wsp_voice_e2e", dir, confirmedTranscript, true, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,6 +211,16 @@ func TestVoiceAudioWrapperPlansExecutesAndRecordsTranscript(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for command record")
+	}
+}
+
+func TestLimitedBufferStopsAtWorkspaceOutputLimit(t *testing.T) {
+	output := &limitedBuffer{limit: 5}
+	if n, err := output.Write([]byte("abcdefgh")); err != nil || n != 8 {
+		t.Fatalf("Write() = (%d, %v), want (8, nil)", n, err)
+	}
+	if got, want := output.String(), "abcde\n[output truncated by workspace limit]"; got != want {
+		t.Fatalf("String() = %q, want %q", got, want)
 	}
 }
 
