@@ -39,7 +39,7 @@ Implemented:
 
 Remaining development priorities:
 
-- Add user/workspace authentication and configurable audit retention for multi-user deployments.
+- Workspace ownership, workspace-specific command permissions, and authenticated CLI/frontend flows remain before remote or multi-user deployment. See [docs/security_model.md](docs/security_model.md).
 - Improve cross-platform speech-to-text setup and live microphone input in the host CLI.
 - Extend project context detection and tune semantic recall using real usage.
 
@@ -85,7 +85,23 @@ GET  /v1/voice/config
 POST /v1/voice/transcripts
 POST /v1/commands/explain
 GET  /v1/context/project
+GET  /v1/auth/me
+POST /v1/auth/tokens
+DELETE /v1/auth/tokens/{token_id}
 ```
+
+The local default is unauthenticated and intended for one user on the same machine; direct host runs bind to loopback, and Compose publishes the API only on `127.0.0.1`. To exercise bearer authentication, set `TERMIND_BOOTSTRAP_TOKEN` to a unique random secret of at least 32 characters in `.env` and send it as `Authorization: Bearer ...`. Authenticated deployment additionally requires `LOCAL_ONLY_MODE=false`; do not expose it publicly until workspace ownership and permission checkpoints are complete, and put TLS in front of any remote deployment.
+
+Create a persistent API token using the bootstrap token. The returned `secret` is shown only once; Postgres stores its SHA-256 hash:
+
+```bash
+curl -sS http://localhost:8000/v1/auth/tokens \
+  -H "Authorization: Bearer $TERMIND_BOOTSTRAP_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"my-cli"}'
+```
+
+Use the returned token for later `/v1/auth/me` requests, and revoke it with `DELETE /v1/auth/tokens/{token_id}`. The CLI and browser do not yet manage or attach these tokens; that is a later checkpoint.
 
 `POST /v1/commands/execute` returns JSON by default. Send `Accept: text/event-stream` for `output` events followed by a `complete` event. Closing the request cancels the worker process group.
 

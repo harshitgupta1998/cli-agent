@@ -20,6 +20,9 @@ type Config struct {
 	ExecutionEnvAllowlist []string
 	ExecutorSocketPath    string
 	LocalOnlyMode         string
+	BootstrapToken        string
+	BootstrapUserID       string
+	BootstrapUserName     string
 	CORSOrigin            string
 	VoiceEnabled          string
 	VoiceSTTProvider      string
@@ -30,7 +33,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		HTTPAddr:              env("HTTP_ADDR", ":8000"),
+		HTTPAddr:              env("HTTP_ADDR", "127.0.0.1:8000"),
 		DatabaseURL:           env("DATABASE_URL", "postgres://termind:termind@database:5432/termind?sslmode=disable"),
 		OllamaBaseURL:         env("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
 		OllamaModel:           env("OLLAMA_MODEL", "llama3.2:3b"),
@@ -42,6 +45,9 @@ func Load() Config {
 		ExecutionEnvAllowlist: listEnv("EXECUTION_ENV_ALLOWLIST", "PATH,HOME,LANG,LC_ALL,TERM,TMPDIR,GOPATH,GOCACHE,GOMODCACHE,NPM_CONFIG_CACHE"),
 		ExecutorSocketPath:    env("EXECUTOR_SOCKET_PATH", "/run/termind/executor.sock"),
 		LocalOnlyMode:         env("LOCAL_ONLY_MODE", "true"),
+		BootstrapToken:        env("TERMIND_BOOTSTRAP_TOKEN", ""),
+		BootstrapUserID:       env("TERMIND_BOOTSTRAP_USER_ID", "usr_owner"),
+		BootstrapUserName:     env("TERMIND_BOOTSTRAP_USER_NAME", "Termind Owner"),
 		CORSOrigin:            env("CORS_ORIGIN", "http://localhost:5173"),
 		VoiceEnabled:          env("VOICE_INPUT_ENABLED", "false"),
 		VoiceSTTProvider:      env("VOICE_STT_PROVIDER", "disabled"),

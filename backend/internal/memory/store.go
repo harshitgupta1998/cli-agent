@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,9 +17,13 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/harsgupta/termind/backend/internal/auth"
 	"github.com/harsgupta/termind/backend/internal/embeddings"
 	"github.com/harsgupta/termind/backend/internal/models"
 )
+
+//go:embed migrations/*.sql
+var authMigrations embed.FS
 
 type Store interface {
 	EnsureProject(ctx context.Context, rootPath string) (string, error)
@@ -54,8 +60,118 @@ func NewPostgresStore(ctx context.Context, databaseURL string, embedder embeddin
 		db.Close()
 		return nil, err
 	}
+	if err := applyAuthMigrations(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	return &PostgresStore{db: db, embedder: embedder}, nil
+}
+
+func applyAuthMigrations(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS termind_schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
+		return fmt.Errorf("create migration table: %w", err)
+	}
+	entries, err := authMigrations.ReadDir("migrations")
+	if err != nil {
+		return fmt.Errorf("read embedded migrations: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		var applied bool
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM termind_schema_migrations WHERE name = $1)`, name).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %s: %w", name, err)
+		}
+		if applied {
+			continue
+		}
+		script, err := authMigrations.ReadFile("migrations/" + name)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", name, err)
+		}
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", name, err)
+		}
+		if _, err = tx.ExecContext(ctx, string(bytes.TrimSpace(script))); err == nil {
+			_, err = tx.ExecContext(ctx, `INSERT INTO termind_schema_migrations(name) VALUES ($1)`, name)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration %s: %w", name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *PostgresStore) EnsureUser(ctx context.Context, principal auth.Principal) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users(id, display_name) VALUES ($1, $2)
+		ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = now()
+	`, principal.UserID, principal.Name)
+	if err != nil {
+		return fmt.Errorf("ensure auth user: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) AuthenticateToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
+	var principal auth.Principal
+	err := s.db.QueryRowContext(ctx, `
+		UPDATE api_tokens AS t
+		SET last_used_at = now()
+		FROM users AS u
+		WHERE t.token_hash = decode($1, 'hex')
+		  AND t.revoked_at IS NULL
+		  AND u.id = t.user_id
+		  AND u.status = 'active'
+		RETURNING t.user_id, u.display_name
+	`, tokenHash).Scan(&principal.UserID, &principal.Name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.Principal{}, auth.ErrNotFound
+	}
+	if err != nil {
+		return auth.Principal{}, fmt.Errorf("authenticate API token: %w", err)
+	}
+	return principal, nil
+}
+
+func (s *PostgresStore) CreateToken(ctx context.Context, principal auth.Principal, name string, tokenHash string) (auth.Token, error) {
+	var token auth.Token
+	token.ID = "tok_" + randomID()
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO api_tokens(id, user_id, name, token_hash)
+		SELECT $1, id, $3, decode($4, 'hex') FROM users WHERE id = $2 AND status = 'active'
+		RETURNING id, name, created_at
+	`, token.ID, principal.UserID, name, tokenHash).Scan(&token.ID, &token.Name, &token.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.Token{}, auth.ErrNotFound
+	}
+	if err != nil {
+		return auth.Token{}, fmt.Errorf("create API token: %w", err)
+	}
+	return token, nil
+}
+
+func (s *PostgresStore) RevokeToken(ctx context.Context, principal auth.Principal, tokenID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE api_tokens SET revoked_at = now()
+		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+	`, tokenID, principal.UserID)
+	if err != nil {
+		return fmt.Errorf("revoke API token: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count revoked API tokens: %w", err)
+	}
+	if count == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
 }
 
 func (s *PostgresStore) Close() error {

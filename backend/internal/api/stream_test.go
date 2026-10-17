@@ -16,7 +16,7 @@ func TestExecuteCommandStreamsOutputAndCompletion(t *testing.T) {
 	dir := t.TempDir()
 	agent := services.NewAgentService(nil, planner.NewRulePlanner(), time.Second).
 		WithExecutionControls([]string{dir}, 1024, []string{"PATH"})
-	handler := NewServer(config.Config{CORSOrigin: "*"}, agent).Routes()
+	handler := NewServer(config.Config{CORSOrigin: "*", LocalOnlyMode: "true"}, agent).Routes()
 	body := `{"command":"printf 'streamed'","cwd":"` + dir + `","confirmation":{"status":"approved"}}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/commands/execute", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

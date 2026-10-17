@@ -4,6 +4,8 @@ Go API service for the Termind product template.
 
 Current backend status: **Phase 6: Voice Input complete**.
 
+Authentication checkpoint S2 adds bearer-token middleware and API-token lifecycle endpoints. Local mode remains anonymous and loopback-only by default; authenticated mode requires a bootstrap token and Postgres. Workspace ownership and per-workspace permissions are still pending.
+
 Implemented backend capabilities:
 
 - Ollama-backed command planning with rule fallback
